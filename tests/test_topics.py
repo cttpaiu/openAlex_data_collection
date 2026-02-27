@@ -12,7 +12,8 @@ BUG-003: get-topics only returned 200 topics maximum
     Fix: Changed fetch_group_by() to use cursor parameter and updated
          _fetch_all_groups() to iterate via meta.next_cursor.
     Test: test_fetch_all_groups_uses_cursor_pagination
-          test_fetch_all_groups_paginates_multiple_pages
+          test_fetch_all_groups_handles_empty_response
+          test_fetch_all_groups_handles_empty_group_by
 
 FEATURE-001: Topic CSV includes description and metadata
     Enhancement: CSV output now includes description, keywords, domain,
@@ -104,10 +105,9 @@ async def test_fetch_all_groups_uses_cursor_pagination(mock_config):
 async def test_fetch_all_groups_handles_empty_response(mock_config):
     """_fetch_all_groups handles empty API responses gracefully."""
     with patch("openalex.commands.topics.AsyncOpenAlexClient") as mock_client_class:
-        mock_client = MagicMock()
+        mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
         mock_client.__aexit__.return_value = None
-        # Use AsyncMock for the coroutine method
         mock_client.fetch_group_by = AsyncMock(return_value=None)
         mock_client_class.return_value = mock_client
 
@@ -120,7 +120,7 @@ async def test_fetch_all_groups_handles_empty_response(mock_config):
 async def test_fetch_all_groups_handles_empty_group_by(mock_config):
     """_fetch_all_groups handles empty group_by array."""
     with patch("openalex.commands.topics.AsyncOpenAlexClient") as mock_client_class:
-        mock_client = MagicMock()
+        mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
         mock_client.__aexit__.return_value = None
         mock_client.fetch_group_by = AsyncMock(return_value={"group_by": [], "meta": {}})

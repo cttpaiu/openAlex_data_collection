@@ -26,7 +26,7 @@ console = Console()
 @click.option("--csv", "save_csv", is_flag=True, help="Save results to CSV")
 @click.option("--filter-topics", is_flag=True, help="Only show topics that are in topics.txt")
 @click.option("--output", "-o", default=None, help="Output CSV filename (skips prompt if set)")
-def get_topics_command(config_path: str, details: bool, save_csv: bool, filter_topics: bool, output: str) -> None:
+def get_topics_command(config_path: str, details: bool, save_csv: bool, filter_topics: bool, output: str | None) -> None:
     """List research topics appearing in keyword search results."""
     cfg = load_config(config_path)
     cfg.validate_api_key()
@@ -105,12 +105,11 @@ def _print_topic_table(groups: list[dict], total_papers: int, title: str) -> Non
     console.print(table)
 
 
-def _save_to_csv(groups: list[dict], total_papers: int, output: str = None) -> None:
+def _save_to_csv(groups: list[dict], total_papers: int, output: str | None = None) -> None:
     if output:
         filename = output
     else:
         import questionary
-        from datetime import datetime
 
         default_name = f"topics_{datetime.now().strftime('%Y%m%d')}.csv"
         filename = questionary.text("Output filename:", default=default_name).ask()
