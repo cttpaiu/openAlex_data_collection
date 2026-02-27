@@ -45,19 +45,40 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 DEFAULT_KEYWORDS = '''\
 (
-  ("quantum computing" OR "quantum computation" OR "quantum processor" OR
-   "quantum information processing" OR "quantum supremacy" OR "quantum advantage") OR
+("quantum computing" OR "quantum computation" OR "quantum processor" OR
+"quantum information processing" OR "quantum information science" OR
+"quantum supremacy" OR "quantum advantage" OR "quantum speedup" OR
+"measurement based quantum computing" OR "MBQC" OR "blind quantum computing") OR
 
-  ("quantum algorithm" OR "quantum circuit" OR "quantum gate" OR
-   "quantum error correction" OR "fault-tolerant quantum computing") OR
+("quantum algorithm" OR "quantum circuit" OR "quantum gate" OR
+"quantum complexity" OR "quantum error correction" OR
+"fault-tolerant quantum computing" OR "quantum fault tolerance" OR
+"quantum simulation" OR "quantum simulator" OR
+"variational quantum" OR "parameterized quantum circuit") OR
 
-  ("qubit" OR "qutrit" OR "qudit") OR
+("qubit" OR "qutrit" OR "qudit") OR
 
-  ("transmon" OR "fluxonium" OR "trapped ion" OR "ion trap" OR
-   "quantum annealing" OR "quantum annealer") OR
+("transmon" OR "fluxonium" OR "trapped ion" OR "ion trap" OR
+"boson sampling" OR "majorana zero mode" OR
+"quantum annealing" OR "quantum annealer" OR "adiabatic quantum computing" OR
+(("neutral atom" OR "rydberg atom") AND ("qubit" OR "gate" OR "array" OR "simulator" OR "entanglement" OR "computer")) OR
+("quantum dot" AND ("qubit" OR "quantum gate" OR "fidelity" OR "Rabi oscillation")) OR
+"hybrid quantum system") OR
 
-  ("Shor algorithm" OR "Grover algorithm" OR "quantum Fourier transform" OR
-   "variational quantum eigensolver" OR "VQE" OR "QAOA" OR "quantum machine learning")
+("surface code" OR "stabilizer code" OR "quantum decoherence" OR "error mitigation" OR
+"quantum noise model" OR "dynamical decoupling") OR
+
+("quantum software" OR "quantum programming" OR "quantum compiler" OR
+"QPU" OR "quantum cloud" OR "distributed quantum computing" OR
+"hybrid classical-quantum" OR "quantum internet" OR "quantum network" OR
+"quantum repeater" OR "quantum memory") OR
+
+("Shor algorithm" OR "Grover algorithm" OR "Simon algorithm" OR
+"quantum Fourier transform" OR "quantum phase estimation" OR
+"Deutsch-Jozsa" OR "Bernstein-Vazirani" OR "amplitude amplification" OR
+"variational quantum eigensolver" OR "VQE" OR
+"quantum approximate optimization algorithm" OR "QAOA" OR
+"quantum machine learning" OR "quantum neural network" OR "QNN" OR "quantum kernel method")
 )
 '''
 
@@ -99,7 +120,11 @@ class AppConfig:
                     f"Keywords file not found: {self.keywords_file}\n"
                     "Run 'openalex init' to create a template."
                 )
-            self._keywords = kw_path.read_text(encoding="utf-8").strip()
+            raw = kw_path.read_text(encoding="utf-8").strip()
+            # Collapse all whitespace (newlines, tabs, multiple spaces) to a
+            # single space so the query is safe to embed in an API filter string.
+            import re
+            self._keywords = re.sub(r"\s+", " ", raw)
         return self._keywords
 
     def get_topics(self) -> list[str]:
