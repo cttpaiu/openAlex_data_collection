@@ -472,6 +472,87 @@ footer {
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
-  .sidebar { display: none; }
-  .main { margin-left: 0; padding: 24px 20px; }
+  .menu-toggle {
+    display: flex;
+  }
+
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    width: 280px;
+  }
+
+  .sidebar.active {
+    transform: translateX(0);
+  }
+
+  .main {
+    margin-left: 0;
+    padding: 80px 20px 24px;
+  }
+
+  .hero {
+    padding: 24px 20px;
+  }
+
+  .hero h1 {
+    font-size: 28px;
+  }
+
+  .hero p {
+    font-size: 15px;
+  }
+
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  pre {
+    padding: 16px;
+    font-size: 12px;
+  }
+
+  table {
+    font-size: 13px;
+  }
+
+  th, td {
+    padding: 8px 10px;
+  }
+}
+
+/* Small mobile (below 480px) */
+@media (max-width: 480px) {
+  .main {
+    padding: 70px 16px 20px;
+  }
+
+  .hero h1 {
+    font-size: 24px;
+  }
+
+  .hero-btns {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  h2 {
+    font-size: 20px;
+  }
+
+  pre, pre code {
+    font-size: 11px;
+  }
+}
+
+/* Extra wide screens - better centering */
+@media (min-width: 1600px) {
+  .main {
+    max-width: 1100px;
+  }
 }
