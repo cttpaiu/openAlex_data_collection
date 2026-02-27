@@ -306,6 +306,29 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
 .badge-purple { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
 
+/* ── Table wrapper for horizontal scroll ── */
+.table-wrapper {
+  overflow-x: auto;
+  margin: 16px 0 24px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.table-wrapper table {
+  margin: 0;
+  border: none;
+}
+
+.table-wrapper th,
+.table-wrapper td {
+  white-space: nowrap;
+}
+
+/* ── Content width constraint for readability ── */
+.prose {
+  max-width: 70ch;
+}
+
 /* ── Command cards ── */
 .cmd-card {
   background: var(--surface);
