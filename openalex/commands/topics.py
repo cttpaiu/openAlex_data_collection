@@ -62,9 +62,9 @@ def get_topics_command(config_path: str, details: bool, save_csv: bool, filter_t
 
     total_papers = sum(g["count"] for g in groups)
 
-    # Enrich with display names if needed (and not already in group_by response)
+    # Enrich with display names and descriptions if needed
     if details or save_csv:
-        groups = asyncio.run(_enrich_topic_names(cfg, groups))
+        groups = asyncio.run(_enrich_topic_data(cfg, groups))
 
     # Auto-switch to CSV for large lists
     if len(groups) > 50 and not save_csv and not details:
@@ -119,13 +119,22 @@ def _save_to_csv(groups: list[dict], total_papers: int, output: str = None) -> N
 
     path = Path(filename)
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["topic_id", "display_name", "paper_count", "percentage"])
+        writer = csv.DictWriter(f, fieldnames=[
+            "topic_id", "display_name", "description", "keywords",
+            "domain", "field", "subfield",
+            "paper_count", "percentage"
+        ])
         writer.writeheader()
         for g in groups:
             pct = round(g["count"] / total_papers * 100, 2) if total_papers else 0
             writer.writerow({
                 "topic_id": g["key"],
-                "display_name": g.get("display_name", g.get("key_display_name", "")),
+                "display_name": g.get("display_name", ""),
+                "description": g.get("description", ""),
+                "keywords": "; ".join(g.get("keywords", [])),
+                "domain": g.get("domain", {}).get("display_name", ""),
+                "field": g.get("field", {}).get("display_name", ""),
+                "subfield": g.get("subfield", {}).get("display_name", ""),
                 "paper_count": g["count"],
                 "percentage": pct,
             })
@@ -163,17 +172,8 @@ async def _fetch_all_groups(cfg: Any, api_filter: str) -> list[dict]:
     return sorted(all_groups, key=lambda g: g["count"], reverse=True)
 
 
-async def _enrich_topic_names(cfg: Any, groups: list[dict]) -> list[dict]:
-    """Fetch display_name for each topic in parallel (if not already present)."""
-    needs_enrichment = [g for g in groups if not g.get("display_name") and g.get("key_display_name") is None]
-
-    if not needs_enrichment:
-        # Use key_display_name as display_name if already present
-        for g in groups:
-            if not g.get("display_name"):
-                g["display_name"] = g.get("key_display_name", g["key"])
-        return groups
-
+async def _enrich_topic_data(cfg: Any, groups: list[dict]) -> list[dict]:
+    """Fetch display_name, description, and keywords for each topic in parallel."""
     async with AsyncOpenAlexClient(
         api_key=cfg.api_key,
         email=cfg.email,
@@ -185,8 +185,18 @@ async def _enrich_topic_names(cfg: Any, groups: list[dict]) -> list[dict]:
 
     for g, details in zip(groups, details_list):
         if details:
-            g["display_name"] = details.get("display_name", g["key"])
+            g["display_name"] = details.get("display_name", g.get("key_display_name", g["key"]))
+            g["description"] = details.get("description", "")
+            g["keywords"] = details.get("keywords", [])
+            g["domain"] = details.get("domain", {})
+            g["field"] = details.get("field", {})
+            g["subfield"] = details.get("subfield", {})
         else:
             g["display_name"] = g.get("key_display_name", g["key"])
+            g["description"] = ""
+            g["keywords"] = []
+            g["domain"] = {}
+            g["field"] = {}
+            g["subfield"] = {}
 
     return groups
