@@ -25,7 +25,8 @@ console = Console()
 @click.option("--details", is_flag=True, help="Show paper count per topic")
 @click.option("--csv", "save_csv", is_flag=True, help="Save results to CSV")
 @click.option("--filter-topics", is_flag=True, help="Only show topics that are in topics.txt")
-def get_topics_command(config_path: str, details: bool, save_csv: bool, filter_topics: bool) -> None:
+@click.option("--output", "-o", default=None, help="Output CSV filename (skips prompt if set)")
+def get_topics_command(config_path: str, details: bool, save_csv: bool, filter_topics: bool, output: str) -> None:
     """List research topics appearing in keyword search results."""
     cfg = load_config(config_path)
     cfg.validate_api_key()
@@ -74,7 +75,7 @@ def get_topics_command(config_path: str, details: bool, save_csv: bool, filter_t
         return
 
     if save_csv:
-        _save_to_csv(groups, total_papers)
+        _save_to_csv(groups, total_papers, output)
         return
 
     if details:
@@ -104,13 +105,17 @@ def _print_topic_table(groups: list[dict], total_papers: int, title: str) -> Non
     console.print(table)
 
 
-def _save_to_csv(groups: list[dict], total_papers: int) -> None:
-    import questionary
+def _save_to_csv(groups: list[dict], total_papers: int, output: str = None) -> None:
+    if output:
+        filename = output
+    else:
+        import questionary
+        from datetime import datetime
 
-    default_name = f"topics_{datetime.now().strftime('%Y%m%d')}.csv"
-    filename = questionary.text("Output filename:", default=default_name).ask()
-    if not filename:
-        filename = default_name
+        default_name = f"topics_{datetime.now().strftime('%Y%m%d')}.csv"
+        filename = questionary.text("Output filename:", default=default_name).ask()
+        if not filename:
+            filename = default_name
 
     path = Path(filename)
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -129,8 +134,9 @@ def _save_to_csv(groups: list[dict], total_papers: int) -> None:
 
 
 async def _fetch_all_groups(cfg: Any, api_filter: str) -> list[dict]:
+    """Fetch all topic groups using cursor pagination (OpenAlex returns max 200 per page)."""
     all_groups: list[dict] = []
-    page = 1
+    cursor = "*"
 
     async with AsyncOpenAlexClient(
         api_key=cfg.api_key,
@@ -138,19 +144,21 @@ async def _fetch_all_groups(cfg: Any, api_filter: str) -> list[dict]:
         max_retries=cfg.max_retries,
         retry_delay=cfg.retry_delay,
     ) as client:
-        while True:
-            data = await client.fetch_group_by(api_filter, "primary_topic.id", page=page)
+        while cursor:
+            data = await client.fetch_group_by(api_filter, "primary_topic.id", cursor=cursor)
             if not data:
                 break
             batch = data.get("group_by", [])
             if not batch:
                 break
             all_groups.extend(batch)
-            # group_by doesn't use cursors — check if there's a next page
+            # Get next cursor from meta
             meta = data.get("meta", {})
-            if len(all_groups) >= meta.get("count", len(all_groups)):
+            next_cursor = meta.get("next_cursor")
+            # If no next_cursor, we've fetched all groups
+            if not next_cursor:
                 break
-            page += 1
+            cursor = next_cursor
 
     return sorted(all_groups, key=lambda g: g["count"], reverse=True)
 
