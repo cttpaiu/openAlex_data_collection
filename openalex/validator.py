@@ -33,7 +33,8 @@ def validate_keywords(query: str) -> list[str]:
     if re.search(r"\b(and|or|not)\b", q):
         errors.append("Operators must be uppercase: use OR, AND, NOT.")
 
-    if re.search(r"\b(AND|OR|NOT)\s+(AND|OR|NOT)\b", q):
+    # AND NOT / OR NOT are valid Boolean patterns; only flag true duplicates
+    if re.search(r"\b(AND|OR)\s+(AND|OR)\b|\bNOT\s+NOT\b", q):
         errors.append("Adjacent operators found (e.g. 'OR OR') — check query.")
 
     if "()" in q:
