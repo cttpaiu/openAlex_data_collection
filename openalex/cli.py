@@ -10,6 +10,7 @@ from openalex.commands.download import download_command
 from openalex.commands.database import convert_to_db_command
 from openalex.commands.check_db import check_db_command
 from openalex.commands.export import export_format_command
+from openalex.commands.validate import validate_command
 
 
 @click.group()
@@ -20,18 +21,20 @@ def cli() -> None:
     \b
     Workflow:
       1. openalex init                  Create config template files
-      2. openalex search                Test: how many papers match?
-      3. openalex get-topics            What topics appear in results?
-      4. openalex get-topics --details --csv  Topic counts → CSV
-      5. openalex search-filtered       Keyword + topic filter count
-      6. openalex sample --size 385     Random validation sample
-      7. openalex download              Download all papers → JSONL
-      8. openalex convert-to-db         JSONL → DuckDB
-      9. openalex check-db              Completeness health report
+      2. openalex validate              Check keywords.txt and topics.txt
+      3. openalex search                Test: how many papers match?
+      4. openalex get-topics            What topics appear in results?
+      5. openalex get-topics --details --csv  Topic counts → CSV
+      6. openalex search-filtered       Keyword + topic filter count
+      7. openalex sample --size 385     Random validation sample
+      8. openalex download              Download all papers → JSONL
+      9. openalex convert-to-db         JSONL → DuckDB
+     10. openalex check-db              Completeness health report
     """
 
 
 cli.add_command(init_command)
+cli.add_command(validate_command)
 cli.add_command(search_command)
 cli.add_command(search_filtered_command)
 cli.add_command(get_topics_command)
