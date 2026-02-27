@@ -146,16 +146,14 @@ body {
   margin-left: var(--nav-width);
   flex: 1;
   max-width: 1000px;
-  width: 100%;
   padding: 48px 56px;
-  margin-right: auto;
 }
 
-/* Center content on wide screens */
-@media (min-width: 1400px) {
+/* Extra padding on very wide screens */
+@media (min-width: 1600px) {
   .main {
-    padding-left: calc((100vw - var(--nav-width) - 1000px) / 2);
-    padding-right: calc((100vw - var(--nav-width) - 1000px) / 2);
+    padding-left: 80px;
+    padding-right: 80px;
   }
 }
 
