@@ -1,0 +1,25 @@
+[project]
+name = "openalex-data-collection"
+version = "0.1.0"
+description = "CLI tool for collecting quantum computing papers from OpenAlex"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.13.3",
+    "click>=8.3.1",
+    "duckdb>=1.4.4",
+    "polars>=1.38.1",
+    "pyyaml>=6.0.3",
+    "questionary>=2.1.1",
+    "rich>=14.3.3",
+]
+
+[project.scripts]
+openalex = "openalex.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["openalex"]
