@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workflow — OpenAlex CLI</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <a href="index.html">
+      <div class="logo-icon">⚛</div>
+      <div>OpenAlex CLI<span class="version">v0.1.0</span></div>
+    </a>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="installation.html">Installation</a>
+    <a href="workflow.html" class="active">End-to-End Workflow</a>
+  </nav>
+  <div class="nav-section">Reference</div>
+  <nav>
+    <a href="commands.html">Commands</a>
+    <a href="config.html">Configuration</a>
+    <a href="validation.html">Validation Rules</a>
+  </nav>
+  <div class="nav-section">Project</div>
+  <nav>
+    <a href="https://github.com/Darunesh1/openAlex_data_collection" target="_blank">GitHub ↗</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="page-header">
+    <h1>End-to-End Workflow</h1>
+    <p>From blank config to a fully loaded DuckDB database — step by step.</p>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>ℹ️ Context</strong>
+    This pipeline collects quantum computing papers published 2003–2024 using a two-layer filter: a Boolean keyword query
+    applied to titles and abstracts, plus a set of OpenAlex topic IDs. The result is ~96,000 papers stored in a
+    normalised DuckDB database.
+  </div>
+
+  <h2>Overview</h2>
+  <p>The pipeline has three phases:</p>
+  <ul>
+    <li><strong>Explore</strong> (steps 1–5) — understand what's in OpenAlex before downloading anything</li>
+    <li><strong>Validate</strong> (steps 6–7) — confirm your query returns relevant papers via a random sample</li>
+    <li><strong>Collect</strong> (steps 8–10) — download everything and build the database</li>
+  </ul>
+
+  <h2>Explore Phase</h2>
+
+  <ol class="steps">
+    <li>
+      <div class="step-content">
+        <h3>Initialise config files</h3>
+        <p>Creates <code>config/collection.yml</code>, <code>keywords.txt</code>, and <code>topics.txt</code> with templates.</p>
+        <pre><code>uv run openalex init</code></pre>
+        <p>Then edit <code>collection.yml</code> to add your API key and email.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Validate your input files</h3>
+        <p>Checks keyword syntax (6 rules) and topic ID format before hitting the API. Catches mistakes like unbalanced parentheses or lowercase operators.</p>
+        <pre><code>uv run openalex validate --no-api   # syntax only, no internet needed
+uv run openalex validate            # + verify each topic ID exists on OpenAlex</code></pre>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Test the keyword search count</h3>
+        <p>Fires a single lightweight API request. No data downloaded — just a count. Lets you tune your query before committing to a download.</p>
+        <pre><code>uv run openalex search</code></pre>
+        <p>Expected output for the default quantum computing query: <strong>~96,000 papers</strong>.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Discover which topics appear</h3>
+        <p>Uses the OpenAlex <code>group_by</code> API to list all research topics that appear in your keyword results, sorted by paper count.</p>
+        <pre><code>uv run openalex get-topics                  # top 20 topics (terminal)
+uv run openalex get-topics --details --csv  # all topics + counts → CSV file</code></pre>
+        <p>Use the CSV to decide which topic IDs to include in <code>topics.txt</code>.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Test the filtered count</h3>
+        <p>Apply both keyword and topic filters together to see the final dataset size before downloading.</p>
+        <pre><code>uv run openalex search-filtered</code></pre>
+        <p>This should be close to (or slightly above) the keyword-only count if your topics are well-chosen.</p>
+      </div>
+    </li>
+  </ol>
+
+  <h2>Validate Phase</h2>
+
+  <ol class="steps" style="counter-reset: step 5;">
+    <li>
+      <div class="step-content">
+        <h3>Take a random validation sample</h3>
+        <p>
+          Uses <strong>reservoir sampling</strong> — every paper in the result set has an equal probability of
+          being selected, regardless of its position. A sample of 385 gives a ±5% confidence interval at 95% confidence.
+        </p>
+        <pre><code>uv run openalex sample --size 385</code></pre>
+        <p>The command shows a table of sampled papers and offers to save them to CSV. Review the titles manually — if you see many irrelevant papers, tighten your keyword query.</p>
+        <div class="callout callout-tip">
+          <strong>💡 Rule of thumb</strong>
+          If &gt;10% of your sample looks irrelevant, refine the query and re-sample. Don't download 820 MB of noise.
+        </div>
+      </div>
+    </li>
+  </ol>
+
+  <h2>Collect Phase</h2>
+
+  <ol class="steps" style="counter-reset: step 6;">
+    <li>
+      <div class="step-content">
+        <h3>Download all papers to JSONL</h3>
+        <p>
+          Downloads every matching paper using 10 async concurrent streams. Papers are written to a
+          <code>.jsonl</code> file (one JSON object per line) with a 1,000-record write buffer to minimise I/O.
+        </p>
+        <pre><code>uv run openalex download</code></pre>
+        <p>
+          You'll be shown a pre-flight summary (estimated total + disk space needed) and asked to confirm before anything is written.
+          The download for ~96k papers takes approximately <strong>15–30 minutes</strong> and produces a file around <strong>820 MB</strong>.
+        </p>
+        <div class="callout callout-warning">
+          <strong>⚠️ Do not interrupt</strong>
+          If the download is interrupted, re-running the command will overwrite the partial file.
+          Resume support is not yet implemented.
+        </div>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Convert JSONL to DuckDB</h3>
+        <p>
+          Reads the JSONL line by line and populates the 5-table normalised schema.
+          Handles deduplication, abstract reconstruction, and auto-creates missing country records.
+        </p>
+        <pre><code>uv run openalex convert-to-db</code></pre>
+        <p>You'll be prompted for the input JSONL path and output database name. Takes approximately <strong>4–6 minutes</strong> for 96k papers.</p>
+        <p>Output tables:</p>
+        <table>
+          <thead><tr><th>Table</th><th>Contents</th><th>~Rows (96k papers)</th></tr></thead>
+          <tbody>
+            <tr><td>papers</td><td>Core metadata per publication</td><td>96,665</td></tr>
+            <tr><td>authors</td><td>Researcher names + ORCIDs</td><td>100,767</td></tr>
+            <tr><td>institutions</td><td>Organisations + country codes</td><td>7,686</td></tr>
+            <tr><td>countries</td><td>Country reference table</td><td>217</td></tr>
+            <tr><td>contributions</td><td>Paper ↔ author ↔ institution links</td><td>405,562</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Check database completeness</h3>
+        <p>Runs a set of completeness queries and displays a health report with Tier 1/2/3 classification.</p>
+        <pre><code>uv run openalex check-db</code></pre>
+        <table>
+          <thead><tr><th>Tier</th><th>Meaning</th><th>Typical %</th></tr></thead>
+          <tbody>
+            <tr><td>Tier 1</td><td>Complete — has both country and institution</td><td>~79%</td></tr>
+            <tr><td>Tier 2</td><td>Partial — missing country or institution</td><td>~21%</td></tr>
+            <tr><td>Tier 3</td><td>Ghost — no authorship data at all</td><td>&lt;1%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </li>
+  </ol>
+
+  <h2>Full pipeline in one block</h2>
+  <pre><code># Setup (one time)
+uv run openalex init
+# → edit config/collection.yml, add API key + email
+# → edit config/topics.txt, add topic IDs one per line
+
+# Explore
+uv run openalex validate --no-api
+uv run openalex search
+uv run openalex get-topics --details --csv
+uv run openalex search-filtered
+
+# Validate
+uv run openalex sample --size 385
+
+# Collect
+uv run openalex download
+uv run openalex convert-to-db
+uv run openalex check-db</code></pre>
+
+  <footer>
+    <span>OpenAlex CLI — v0.1.0</span>
+    <span><a href="commands.html">Next: Commands Reference →</a></span>
+  </footer>
+</main>
+</body>
+</html>

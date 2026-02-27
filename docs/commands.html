@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Commands — OpenAlex CLI</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <a href="index.html">
+      <div class="logo-icon">⚛</div>
+      <div>OpenAlex CLI<span class="version">v0.1.0</span></div>
+    </a>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="installation.html">Installation</a>
+    <a href="workflow.html">End-to-End Workflow</a>
+  </nav>
+  <div class="nav-section">Reference</div>
+  <nav>
+    <a href="commands.html" class="active">Commands</a>
+    <a href="config.html">Configuration</a>
+    <a href="validation.html">Validation Rules</a>
+  </nav>
+  <div class="nav-section">Project</div>
+  <nav>
+    <a href="https://github.com/Darunesh1/openAlex_data_collection" target="_blank">GitHub ↗</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="page-header">
+    <h1>Commands Reference</h1>
+    <p>All 10 commands — inputs, outputs, flags, and examples.</p>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>ℹ️ Running commands</strong>
+    All commands are run via <code>uv run openalex &lt;command&gt;</code>. Every command reads
+    <code>config/collection.yml</code> by default. Override with <code>--config path/to/other.yml</code>.
+  </div>
+
+  <!-- init -->
+  <div class="cmd-card" id="init">
+    <div class="cmd-card-header">
+      <span class="badge badge-green">SETUP</span>
+      <h3>openalex init</h3>
+    </div>
+    <p>Create config template files to get started. Safe to run multiple times — existing files are not overwritten unless <code>--force</code> is passed.</p>
+    <div class="flags">Flags: <span>--force</span> — overwrite existing files</div>
+    <pre><code>uv run openalex init
+uv run openalex init --force   # overwrite existing files</code></pre>
+    <p><strong>Creates:</strong></p>
+    <ul>
+      <li><code>config/collection.yml</code> — main config with API key placeholder</li>
+      <li><code>config/keywords.txt</code> — example Boolean query</li>
+      <li><code>config/topics.txt</code> — empty template with format instructions</li>
+      <li><code>data/raw/</code> and <code>data/db/</code> directories</li>
+    </ul>
+  </div>
+
+  <!-- validate -->
+  <div class="cmd-card" id="validate">
+    <div class="cmd-card-header">
+      <span class="badge badge-blue">VALIDATE</span>
+      <h3>openalex validate</h3>
+    </div>
+    <p>Check <code>keywords.txt</code> and <code>topics.txt</code> before running any collection command. Runs 6 keyword syntax rules and optionally verifies each topic ID against the OpenAlex API.</p>
+    <div class="flags">Flags: <span>--no-api</span> — skip API check (offline, instant)</div>
+    <pre><code>uv run openalex validate            # full check (requires API key)
+uv run openalex validate --no-api   # syntax + format only</code></pre>
+    <p><strong>Exits with code 1</strong> if any check fails. Safe to use in CI pipelines.</p>
+  </div>
+
+  <!-- search -->
+  <div class="cmd-card" id="search">
+    <div class="cmd-card-header">
+      <span class="badge badge-blue">EXPLORE</span>
+      <h3>openalex search</h3>
+    </div>
+    <p>Count papers matching the keyword query only (no topic filter). Fires a single API request — very fast.</p>
+    <div class="flags">Flags: <span>--dry-run</span> — validate keywords, skip API call</div>
+    <pre><code>uv run openalex search
+uv run openalex search --dry-run</code></pre>
+    <p><strong>API call:</strong> <code>GET /works?filter=title_and_abstract.search:{keywords},...&amp;per_page=1</code></p>
+  </div>
+
+  <!-- get-topics -->
+  <div class="cmd-card" id="get-topics">
+    <div class="cmd-card-header">
+      <span class="badge badge-blue">EXPLORE</span>
+      <h3>openalex get-topics</h3>
+    </div>
+    <p>List all research topics that appear in keyword search results, sorted by paper count. Uses the OpenAlex <code>group_by</code> API — no full result set download required.</p>
+    <div class="flags">
+      Flags:
+      <span>--details</span> — show paper count per topic &nbsp;|&nbsp;
+      <span>--csv</span> — save to CSV file &nbsp;|&nbsp;
+      <span>--filter-topics</span> — only show topics already in topics.txt
+    </div>
+    <pre><code>uv run openalex get-topics                   # top 20 in terminal
+uv run openalex get-topics --details         # all topics with counts
+uv run openalex get-topics --details --csv   # save all to CSV (prompts filename)
+uv run openalex get-topics --filter-topics   # only show your selected topics</code></pre>
+    <p><strong>Output CSV columns:</strong> <code>topic_id</code>, <code>display_name</code>, <code>paper_count</code>, <code>percentage</code></p>
+    <div class="callout callout-tip">
+      <strong>💡 Typical workflow</strong>
+      Run <code>--details --csv</code>, open the CSV, sort by <code>paper_count</code>,
+      copy the relevant topic IDs into <code>topics.txt</code>.
+    </div>
+  </div>
+
+  <!-- search-filtered -->
+  <div class="cmd-card" id="search-filtered">
+    <div class="cmd-card-header">
+      <span class="badge badge-blue">EXPLORE</span>
+      <h3>openalex search-filtered</h3>
+    </div>
+    <p>Count papers matching both keywords AND topics filter. Validates all topic ID formats before calling the API. Requires <code>topics.txt</code> to have at least one valid ID.</p>
+    <div class="flags">Flags: <span>--dry-run</span> — validate only, skip API call</div>
+    <pre><code>uv run openalex search-filtered</code></pre>
+  </div>
+
+  <!-- sample -->
+  <div class="cmd-card" id="sample">
+    <div class="cmd-card-header">
+      <span class="badge badge-yellow">VALIDATE</span>
+      <h3>openalex sample</h3>
+    </div>
+    <p>
+      Take a truly random sample of papers using <strong>reservoir sampling</strong>.
+      Every paper in the result set has an equal chance of being selected, regardless
+      of its page position. Use this to manually review whether your query returns relevant papers.
+    </p>
+    <div class="flags">
+      Flags:
+      <span>--size N</span> (required) — number of papers to sample &nbsp;|&nbsp;
+      <span>--no-topics</span> — keyword filter only
+    </div>
+    <pre><code>uv run openalex sample --size 385            # recommended for ±5% confidence
+uv run openalex sample --size 50             # quick sanity check
+uv run openalex sample --size 100 --no-topics</code></pre>
+    <p>Shows active filters, asks for confirmation, streams results, displays a table, and optionally saves to CSV.</p>
+    <p><strong>Sample CSV columns:</strong> <code>id</code>, <code>doi</code>, <code>title</code>, <code>publication_year</code>, <code>type</code>, <code>topic_id</code>, <code>topic_name</code>, <code>abstract_text</code>, <code>cited_by_count</code>, <code>fwci</code>, <code>institutions_count</code>, <code>countries_count</code></p>
+  </div>
+
+  <!-- download -->
+  <div class="cmd-card" id="download">
+    <div class="cmd-card-header">
+      <span class="badge badge-purple">COLLECT</span>
+      <h3>openalex download</h3>
+    </div>
+    <p>Download all matching papers to a JSONL file. Uses 10 async concurrent streams with cursor-based pagination. Pre-flight check shows estimated total and disk space needed before asking for confirmation.</p>
+    <div class="flags">
+      Flags:
+      <span>--output FILE</span> — output filename (prompts if not given) &nbsp;|&nbsp;
+      <span>--no-topics</span> — keyword filter only
+    </div>
+    <pre><code>uv run openalex download
+uv run openalex download --output quantum_2024.jsonl
+uv run openalex download --no-topics --output keywords_only.jsonl</code></pre>
+    <p><strong>Output:</strong> JSONL file in <code>data/raw/</code> — one JSON object per line, ~820 MB for 96k papers.</p>
+    <div class="callout callout-warning">
+      <strong>⚠️ Interruptions overwrite the file</strong>
+      If the download is interrupted, re-running will start a fresh JSONL file.
+      Resume support is planned for a future version.
+    </div>
+  </div>
+
+  <!-- convert-to-db -->
+  <div class="cmd-card" id="convert-to-db">
+    <div class="cmd-card-header">
+      <span class="badge badge-purple">COLLECT</span>
+      <h3>openalex convert-to-db</h3>
+    </div>
+    <p>Convert a JSONL file into a normalised DuckDB database with 5 tables. Handles deduplication, abstract reconstruction from inverted index, and auto-creates missing country records.</p>
+    <div class="flags">
+      Flags:
+      <span>--input FILE</span> — JSONL path (prompts if not given) &nbsp;|&nbsp;
+      <span>--output FILE</span> — DB filename &nbsp;|&nbsp;
+      <span>--db-dir DIR</span> — output directory
+    </div>
+    <pre><code>uv run openalex convert-to-db
+uv run openalex convert-to-db --input data/raw/quantum.jsonl --output papers.duckdb</code></pre>
+    <p><strong>5-table schema:</strong> <code>papers</code>, <code>authors</code>, <code>institutions</code>, <code>countries</code>, <code>contributions</code></p>
+  </div>
+
+  <!-- check-db -->
+  <div class="cmd-card" id="check-db">
+    <div class="cmd-card-header">
+      <span class="badge badge-purple">COLLECT</span>
+      <h3>openalex check-db</h3>
+    </div>
+    <p>Run completeness checks on a DuckDB database and display a health report. Display only — no files are written or modified.</p>
+    <div class="flags">Flags: <span>--db FILE</span> — path to database (prompts if not given)</div>
+    <pre><code>uv run openalex check-db
+uv run openalex check-db --db data/db/quantum_papers.duckdb</code></pre>
+    <p><strong>Checks:</strong> total papers, year range, authors/institutions/countries, papers with abstracts, papers with country info, Tier 1/2/3 classification, top 5 topics.</p>
+  </div>
+
+  <!-- export-format -->
+  <div class="cmd-card" id="export-format">
+    <div class="cmd-card-header">
+      <span class="badge badge-yellow">COMING SOON</span>
+      <h3>openalex export-format</h3>
+    </div>
+    <p>Export the DuckDB database to analysis-ready CSV files. Not yet implemented.</p>
+  </div>
+
+  <h2>Common options</h2>
+  <table>
+    <thead><tr><th>Option</th><th>Available on</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>--config PATH</td><td>All commands</td><td>Path to config YAML (default: <code>config/collection.yml</code>)</td></tr>
+      <tr><td>--dry-run</td><td>search, search-filtered</td><td>Validate inputs only, skip API call</td></tr>
+      <tr><td>--no-api</td><td>validate</td><td>Skip OpenAlex API topic existence check</td></tr>
+      <tr><td>--no-topics</td><td>sample, download</td><td>Use keyword filter only, ignore topics.txt</td></tr>
+      <tr><td>--help</td><td>All commands</td><td>Show options and exit</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <span>OpenAlex CLI — v0.1.0</span>
+    <span><a href="config.html">Next: Configuration →</a></span>
+  </footer>
+</main>
+</body>
+</html>

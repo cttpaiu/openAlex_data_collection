@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Validation Rules — OpenAlex CLI</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <a href="index.html">
+      <div class="logo-icon">⚛</div>
+      <div>OpenAlex CLI<span class="version">v0.1.0</span></div>
+    </a>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="installation.html">Installation</a>
+    <a href="workflow.html">End-to-End Workflow</a>
+  </nav>
+  <div class="nav-section">Reference</div>
+  <nav>
+    <a href="commands.html">Commands</a>
+    <a href="config.html">Configuration</a>
+    <a href="validation.html" class="active">Validation Rules</a>
+  </nav>
+  <div class="nav-section">Project</div>
+  <nav>
+    <a href="https://github.com/Darunesh1/openAlex_data_collection" target="_blank">GitHub ↗</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="page-header">
+    <h1>Validation Rules</h1>
+    <p>All rules enforced by <code>openalex validate</code> — with examples of passing and failing inputs.</p>
+  </div>
+
+  <div class="callout callout-tip">
+    <strong>✅ Run validation before every collection</strong>
+    <code>uv run openalex validate --no-api</code> takes under a second and can save you from a failed 820 MB download.
+  </div>
+
+  <h2>Keyword validation (6 rules)</h2>
+  <p>Applied to the full contents of <code>keywords.txt</code>. All rules must pass or the command exits with code 1.</p>
+
+  <ul class="rule-list">
+
+    <li>
+      <div class="rule-num">R1</div>
+      <div class="rule-content">
+        <strong>Non-empty</strong>
+        <p>The file must contain at least one non-whitespace character.</p>
+        <p>
+          ✅ <code>("quantum computing" OR "qubit")</code><br>
+          ❌ <em>(empty file)</em>
+        </p>
+      </div>
+    </li>
+
+    <li>
+      <div class="rule-num">R2</div>
+      <div class="rule-content">
+        <strong>Balanced parentheses</strong>
+        <p>Every opening <code>(</code> must have a matching closing <code>)</code>. The count of <code>(</code> must equal the count of <code>)</code>.</p>
+        <p>
+          ✅ <code>("quantum computing" OR ("qubit" AND "gate"))</code><br>
+          ❌ <code>("quantum computing" OR ("qubit" AND "gate")</code> — missing one <code>)</code>
+        </p>
+      </div>
+    </li>
+
+    <li>
+      <div class="rule-num">R3</div>
+      <div class="rule-content">
+        <strong>Even double quotes</strong>
+        <p>The total number of <code>"</code> characters must be even — every opening quote must have a closing quote.</p>
+        <p>
+          ✅ <code>("quantum computing" OR "qubit")</code><br>
+          ❌ <code>("quantum computing OR "qubit")</code> — 3 quotes (odd)
+        </p>
+      </div>
+    </li>
+
+    <li>
+      <div class="rule-num">R4</div>
+      <div class="rule-content">
+        <strong>Uppercase operators</strong>
+        <p>Boolean operators must be uppercase: <code>OR</code>, <code>AND</code>, <code>NOT</code>. Lowercase versions (<code>or</code>, <code>and</code>, <code>not</code>) are treated as literal search terms by OpenAlex, which silently breaks your query.</p>
+        <p>
+          ✅ <code>("quantum computing" OR "qubit")</code><br>
+          ❌ <code>("quantum computing" or "qubit")</code>
+        </p>
+        <div class="callout callout-warning" style="margin-top: 10px;">
+          <strong>⚠️ Silent failure</strong>
+          OpenAlex does <em>not</em> error on lowercase operators — it just treats them as search terms.
+          This rule catches a mistake that would otherwise inflate your result count silently.
+        </div>
+      </div>
+    </li>
+
+    <li>
+      <div class="rule-num">R5</div>
+      <div class="rule-content">
+        <strong>No adjacent operators</strong>
+        <p>Two operators in a row (e.g. <code>OR OR</code>, <code>AND NOT NOT</code>) indicate a copy-paste error or missing term.</p>
+        <p>
+          ✅ <code>("qubit" OR "qutrit" OR "qudit")</code><br>
+          ❌ <code>("qubit" OR OR "qutrit")</code>
+        </p>
+      </div>
+    </li>
+
+    <li>
+      <div class="rule-num">R6</div>
+      <div class="rule-content">
+        <strong>No empty groups</strong>
+        <p>An empty parentheses pair <code>()</code> is not valid and usually results from an incomplete edit.</p>
+        <p>
+          ✅ <code>("quantum computing" OR "qubit")</code><br>
+          ❌ <code>("quantum computing" OR ())</code>
+        </p>
+      </div>
+    </li>
+
+  </ul>
+
+  <h2>Topic ID validation (2 stages)</h2>
+  <p>Applied to every non-comment line in <code>topics.txt</code>.</p>
+
+  <ul class="rule-list">
+
+    <li>
+      <div class="rule-num">S1</div>
+      <div class="rule-content">
+        <strong>Format check — <code>T</code> + exactly 5 digits</strong>
+        <p>
+          Every topic ID must match the regular expression <code>^T\d{5}$</code>: the letter <code>T</code>
+          followed by exactly five digits, nothing else.
+        </p>
+        <p>
+          ✅ <code>T10020</code>, <code>T11414</code>, <code>T12537</code><br>
+          ❌ <code>t10020</code> — lowercase t<br>
+          ❌ <code>T1002</code> — only 4 digits<br>
+          ❌ <code>T100200</code> — 6 digits<br>
+          ❌ <code>"T10020"</code> — quoted (Python list format pasted by mistake)
+        </p>
+        <p>This stage runs instantly with no internet connection. Malformed IDs are reported and the valid ones continue to Stage 2.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="rule-num">S2</div>
+      <div class="rule-content">
+        <strong>API existence check</strong>
+        <p>
+          All valid-format IDs are checked against the OpenAlex API in parallel:
+          <code>GET https://api.openalex.org/topics/{id}</code>.
+          A HTTP 200 means the topic exists; anything else (404, timeout) means it doesn't.
+        </p>
+        <p>
+          ✅ <code>T10020</code> → HTTP 200 — confirmed<br>
+          ❌ <code>T99999</code> → HTTP 404 — not found on OpenAlex
+        </p>
+        <p>This check runs all IDs concurrently — even 137 IDs complete in under 3 seconds.</p>
+        <div class="callout callout-info">
+          <strong>ℹ️ Skip with --no-api</strong>
+          If you don't have internet access or just want a quick syntax check, use
+          <code>openalex validate --no-api</code> to skip Stage 2 entirely.
+        </div>
+      </div>
+    </li>
+
+  </ul>
+
+  <h2>Error handling behaviour</h2>
+  <table>
+    <thead><tr><th>Situation</th><th>Behaviour</th></tr></thead>
+    <tbody>
+      <tr><td>API key missing or placeholder</td><td>Red error message, exit code 1. No API calls made.</td></tr>
+      <tr><td>keywords.txt not found</td><td>Red error, exit code 1. Suggests running <code>openalex init</code>.</td></tr>
+      <tr><td>keywords.txt fails any of R1–R6</td><td>Lists all failed rules, exit code 1.</td></tr>
+      <tr><td>topics.txt not found</td><td>Yellow warning only (file is optional). Does not fail.</td></tr>
+      <tr><td>topics.txt is empty</td><td>Yellow warning. Does not fail.</td></tr>
+      <tr><td>Topic ID fails format (S1)</td><td>Lists malformed IDs, exit code 1.</td></tr>
+      <tr><td>Topic ID not found on API (S2)</td><td>Lists missing IDs, exit code 1.</td></tr>
+      <tr><td>All checks pass</td><td>Green confirmation message, exit code 0.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Using validate in scripts</h2>
+  <p><code>openalex validate</code> exits with code 1 on any failure, making it safe to use in shell scripts or CI:</p>
+  <pre><code>#!/bin/bash
+set -e
+
+uv run openalex validate --no-api || { echo "Fix validation errors first"; exit 1; }
+uv run openalex download
+uv run openalex convert-to-db</code></pre>
+
+  <footer>
+    <span>OpenAlex CLI — v0.1.0</span>
+    <span><a href="index.html">← Back to Overview</a></span>
+  </footer>
+</main>
+</body>
+</html>

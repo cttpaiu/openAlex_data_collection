@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Installation — OpenAlex CLI</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <a href="index.html">
+      <div class="logo-icon">⚛</div>
+      <div>OpenAlex CLI<span class="version">v0.1.0</span></div>
+    </a>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="installation.html" class="active">Installation</a>
+    <a href="workflow.html">End-to-End Workflow</a>
+  </nav>
+  <div class="nav-section">Reference</div>
+  <nav>
+    <a href="commands.html">Commands</a>
+    <a href="config.html">Configuration</a>
+    <a href="validation.html">Validation Rules</a>
+  </nav>
+  <div class="nav-section">Project</div>
+  <nav>
+    <a href="https://github.com/Darunesh1/openAlex_data_collection" target="_blank">GitHub ↗</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="page-header">
+    <h1>Installation</h1>
+    <p>Get the OpenAlex CLI running in under 5 minutes.</p>
+  </div>
+
+  <h2>Prerequisites</h2>
+  <table>
+    <thead><tr><th>Requirement</th><th>Version</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Python</td><td>≥ 3.13</td><td>Check with <code>python --version</code></td></tr>
+      <tr><td>uv</td><td>latest</td><td>Package manager — <a href="https://docs.astral.sh/uv/" target="_blank">install guide</a></td></tr>
+      <tr><td>OpenAlex API key</td><td>—</td><td>Free — <a href="https://openalex.org/account" target="_blank">request here</a></td></tr>
+      <tr><td>Disk space</td><td>≥ 2 GB</td><td>~820 MB for JSONL + ~200 MB for DuckDB</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-info">
+    <strong>ℹ️ Why uv?</strong>
+    This project uses <code>uv</code> exclusively for dependency management. Never use bare <code>pip install</code>
+    — it will install into the wrong environment.
+  </div>
+
+  <h2>Step 1 — Clone the repository</h2>
+  <pre><code>git clone https://github.com/Darunesh1/openAlex_data_collection.git
+cd openAlex_data_collection</code></pre>
+
+  <h2>Step 2 — Install dependencies</h2>
+  <pre><code>uv sync</code></pre>
+  <p>This installs all dependencies and registers the <code>openalex</code> command into the project's virtual environment. Takes about 30 seconds on first run.</p>
+
+  <h2>Step 3 — Verify installation</h2>
+  <pre><code>uv run openalex --help</code></pre>
+  <p>You should see the full command list. If you get <em>command not found</em>, make sure you're inside the project directory and ran <code>uv sync</code>.</p>
+
+  <h2>Step 4 — Create config files</h2>
+  <pre><code>uv run openalex init</code></pre>
+  <p>This creates three files:</p>
+  <ul>
+    <li><code>config/collection.yml</code> — main config (API key, dates, batch sizes)</li>
+    <li><code>config/keywords.txt</code> — your Boolean search query</li>
+    <li><code>config/topics.txt</code> — OpenAlex topic IDs, one per line</li>
+  </ul>
+  <p>It also creates <code>data/raw/</code> and <code>data/db/</code> output directories.</p>
+
+  <h2>Step 5 — Add your API key</h2>
+  <p>Open <code>config/collection.yml</code> and replace the placeholder:</p>
+  <span class="pre-label">config/collection.yml</span>
+  <pre><code>api:
+  key: "YOUR_API_KEY_HERE"    # ← replace this
+  email: "your@email.com"     # ← and this</code></pre>
+
+  <div class="callout callout-warning">
+    <strong>⚠️ Keep your API key private</strong>
+    Never commit <code>config/collection.yml</code> with a real API key to a public repository.
+    Add it to <code>.gitignore</code> or use an environment variable.
+  </div>
+
+  <h2>Step 6 — Add topic IDs</h2>
+  <p>Edit <code>config/topics.txt</code> — one topic ID per line. Lines starting with <code>#</code> are ignored.</p>
+  <span class="pre-label">config/topics.txt</span>
+  <pre><code># Quantum computing core topics
+T10020
+T10682
+T10382
+T10657
+T10425</code></pre>
+
+  <p>Don't know which topic IDs to use? Run <code>openalex get-topics</code> after setting up keywords to discover them automatically.</p>
+
+  <h2>Step 7 — Validate before collecting</h2>
+  <pre><code># Offline syntax check only
+uv run openalex validate --no-api
+
+# Full check including API existence verification
+uv run openalex validate</code></pre>
+
+  <p>Both files must pass validation before any collection command will work reliably. See <a href="validation.html">Validation Rules</a> for details.</p>
+
+  <h2>Directory structure after init</h2>
+  <pre><code>openAlex_data_collection/
+├── config/
+│   ├── collection.yml     ← main config
+│   ├── keywords.txt       ← Boolean query
+│   └── topics.txt         ← topic IDs
+├── data/
+│   ├── raw/               ← JSONL downloads land here
+│   └── db/                ← DuckDB files land here
+├── openalex/              ← Python package
+└── pyproject.toml</code></pre>
+
+  <div class="callout callout-tip">
+    <strong>✅ Ready!</strong>
+    Once validation passes, follow the <a href="workflow.html">End-to-End Workflow</a> to collect your dataset.
+  </div>
+
+  <footer>
+    <span>OpenAlex CLI — v0.1.0</span>
+    <span><a href="workflow.html">Next: Workflow →</a></span>
+  </footer>
+</main>
+</body>
+</html>

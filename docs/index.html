@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenAlex CLI — Quantum Computing Data Collection</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <a href="index.html">
+      <div class="logo-icon">⚛</div>
+      <div>
+        OpenAlex CLI
+        <span class="version">v0.1.0</span>
+      </div>
+    </a>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <nav>
+    <a href="index.html" class="active">Overview</a>
+    <a href="installation.html">Installation</a>
+    <a href="workflow.html">End-to-End Workflow</a>
+  </nav>
+  <div class="nav-section">Reference</div>
+  <nav>
+    <a href="commands.html">Commands</a>
+    <a href="config.html">Configuration</a>
+    <a href="validation.html">Validation Rules</a>
+  </nav>
+  <div class="nav-section">Project</div>
+  <nav>
+    <a href="https://github.com/Darunesh1/openAlex_data_collection" target="_blank">GitHub ↗</a>
+  </nav>
+</aside>
+
+<!-- ── Main ── -->
+<main class="main">
+
+  <div class="hero">
+    <h1>OpenAlex CLI</h1>
+    <p>A command-line pipeline for collecting, validating, and storing quantum computing publications from the OpenAlex API.</p>
+    <div class="hero-btns">
+      <a href="installation.html" class="btn btn-primary">Get Started →</a>
+      <a href="commands.html" class="btn btn-secondary">View Commands</a>
+    </div>
+  </div>
+
+  <h2>What is this?</h2>
+  <p>
+    The OpenAlex CLI automates a multi-step data collection pipeline that was previously spread across four
+    Jupyter notebooks and manual copy-pasting. It wraps every stage — from query validation to database
+    loading — into a single tool you run from the terminal.
+  </p>
+  <p>
+    The target dataset is quantum computing research papers (2003–2024) collected from the
+    <a href="https://openalex.org" target="_blank">OpenAlex</a> open scholarly database —
+    roughly <strong>~96,000 papers</strong> across 89 research topic IDs.
+  </p>
+
+  <h2>Features</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="icon">🔍</div>
+      <h3>Query validation</h3>
+      <p>Six syntax rules catch malformed Boolean queries before any API call is made.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">⚡</div>
+      <h3>Async downloads</h3>
+      <p>10 concurrent streams with cursor-based pagination handle 96k+ papers efficiently.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🎲</div>
+      <h3>Reservoir sampling</h3>
+      <p>Truly random samples from large result sets to validate query quality before full download.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🗄️</div>
+      <h3>Normalised DuckDB</h3>
+      <p>5-table relational schema: papers, authors, institutions, countries, contributions.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">📊</div>
+      <h3>Health reports</h3>
+      <p>Tier 1/2/3 completeness classification on every database after loading.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🎨</div>
+      <h3>Rich terminal UI</h3>
+      <p>Coloured panels, progress bars, and tables — no plain text walls.</p>
+    </div>
+  </div>
+
+  <h2>The 10-Command Pipeline</h2>
+  <pre><code>openalex init                        # 1. create config templates
+openalex validate                    # 2. check keywords + topics files
+openalex search                      # 3. how many papers match keywords?
+openalex get-topics                  # 4. what topics appear?
+openalex get-topics --details --csv  # 5. count per topic → save CSV
+openalex search-filtered             # 6. keyword + topic filter count
+openalex sample --size 385           # 7. random validation sample
+openalex download                    # 8. download all → JSONL (~820 MB)
+openalex convert-to-db               # 9. JSONL → DuckDB
+openalex check-db                    # 10. completeness health report</code></pre>
+
+  <h2>Technology Stack</h2>
+  <table>
+    <thead><tr><th>Package</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td>click</td><td>CLI command framework</td></tr>
+      <tr><td>rich</td><td>Coloured terminal output, tables, progress bars</td></tr>
+      <tr><td>aiohttp</td><td>Async HTTP for OpenAlex API</td></tr>
+      <tr><td>duckdb</td><td>Embedded analytical database</td></tr>
+      <tr><td>polars</td><td>Fast JSONL processing for large files</td></tr>
+      <tr><td>pyyaml</td><td>Config file parsing</td></tr>
+      <tr><td>questionary</td><td>Interactive terminal prompts</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Quick Start</h2>
+  <span class="pre-label">terminal</span>
+  <pre><code># 1. Clone and install
+git clone https://github.com/Darunesh1/openAlex_data_collection.git
+cd openAlex_data_collection
+uv sync
+
+# 2. Create config templates
+uv run openalex init
+
+# 3. Add your API key to config/collection.yml
+# 4. Add topic IDs to config/topics.txt (one per line)
+
+# 5. Validate everything before hitting the API
+uv run openalex validate --no-api    # fast, offline
+uv run openalex validate             # + API existence check
+
+# 6. Run the pipeline
+uv run openalex search
+uv run openalex download
+uv run openalex convert-to-db
+uv run openalex check-db</code></pre>
+
+  <div class="callout callout-tip">
+    <strong>💡 Tip</strong>
+    Run <code>openalex validate</code> every time you edit <code>keywords.txt</code> or <code>topics.txt</code>.
+    It catches syntax errors before they cause a failed 820 MB download.
+  </div>
+
+  <footer>
+    <span>OpenAlex CLI — v0.1.0</span>
+    <span>Built with Python 3.13 · <a href="https://openalex.org">OpenAlex</a></span>
+  </footer>
+
+</main>
+</body>
+</html>
