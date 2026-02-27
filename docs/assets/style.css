@@ -492,6 +492,7 @@ footer {
 }
 
 /* ── Responsive ── */
+/* Mobile only - hide sidebar and show toggle */
 @media (max-width: 768px) {
   .menu-toggle {
     display: flex;
@@ -571,9 +572,10 @@ footer {
   }
 }
 
-/* Extra wide screens - better centering */
+/* Extra wide screens - more padding */
 @media (min-width: 1600px) {
   .main {
-    max-width: 1100px;
+    padding-left: 80px;
+    padding-right: 80px;
   }
 }
