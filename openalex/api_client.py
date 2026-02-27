@@ -126,14 +126,14 @@ class AsyncOpenAlexClient:
         return None
 
     async def fetch_group_by(self, api_filter: str, group_by: str,
-                             page: int = 1) -> Optional[Dict]:
-        """Fetch group_by results (topic counts etc.)."""
+                             cursor: str = "*") -> Optional[Dict]:
+        """Fetch group_by results (topic counts etc.) using cursor pagination."""
         url = "https://api.openalex.org/works"
         params = {
             "filter": api_filter,
             "group_by": group_by,
             "per_page": 200,
-            "page": page,
+            "cursor": cursor,
         }
         async with self.semaphore:
             for attempt in range(self.max_retries):

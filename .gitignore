@@ -208,4 +208,5 @@ __marimo__/
 .python-version
 collection.yml
 keywords.txt
-topic.txt
+topics.txt
+QWEN.md
