@@ -81,13 +81,17 @@ def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save
         doc_types=cfg.doc_types,
     )
 
+    # Get total count for progress display
+    console.print("[dim]Getting total paper count...[/dim]")
+    total_count = asyncio.run(_get_count(cfg, api_filter))
+    console.print(f"[dim]Total matching papers: {total_count:,}[/dim]\n")
+
     if fast:
-        console.print(f"\n[yellow]⚠ Using FAST sampling (OpenAlex sample API)[/yellow]")
-        console.print(f"[dim]Warning: This may produce BIASED samples that don't represent the population.[/dim]")
-        console.print(f"[dim]For statistically valid sampling, omit --fast to use reservoir sampling.[/dim]\n")
+        console.print(f"\n[yellow]⚠ Using OpenAlex sample API (fast)[/yellow]")
+        console.print(f"[dim]Note: If results seem biased, try without --fast (slower but scans all papers)[/dim]\n")
         sampled = asyncio.run(_fetch_sample_fast(cfg, api_filter, size, seed))
     else:
-        console.print(f"\n[dim]Using reservoir sampling for statistically valid random sample...[/dim]")
+        console.print(f"\n[dim]Using reservoir sampling (scans all {total_count:,} papers...)[/dim]")
         sampled = asyncio.run(_reservoir_sample(cfg, api_filter, size, seed))
 
     if not sampled:
@@ -115,6 +119,17 @@ def _print_filter_summary(cfg: Any, topics: Optional[list[str]], size: int) -> N
     table.add_row("Doc types", ", ".join(cfg.doc_types))
     table.add_row("Sample size", str(size))
     console.print(Panel(table, title="[bold]Active filters[/bold]", expand=False))
+
+
+async def _get_count(cfg: Any, api_filter: str) -> int:
+    """Get total count of matching papers."""
+    async with AsyncOpenAlexClient(
+        api_key=cfg.api_key,
+        email=cfg.email,
+        max_retries=cfg.max_retries,
+        retry_delay=cfg.retry_delay,
+    ) as client:
+        return await client.get_total_count(api_filter)
 
 
 def _print_sample_table(papers: List[Dict]) -> None:
@@ -243,15 +258,9 @@ async def _reservoir_sample(cfg: Any, api_filter: str, k: int, seed: Optional[in
 
 
 async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[int] = None) -> List[Dict]:
-    """Fast sampling using OpenAlex's sample parameter (BIASED - use with caution).
+    """Fast sampling using OpenAlex's sample parameter.
 
-    ⚠️ WARNING: OpenAlex's sample parameter samples from their search index,
-    NOT from your actual filtered results. This can produce biased samples
-    that don't represent the population distribution.
-
-    Use only for quick exploration, NOT for statistical validation.
-
-    For statistically valid sampling, use _reservoir_sample() instead.
+    OpenAlex docs: https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/sample-entity-lists
     """
     results: List[Dict] = []
 
@@ -269,6 +278,19 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
         }
         if seed is not None:
             extra_params["seed"] = seed
+
+        # DEBUG: Print the actual API URL being sent
+        from urllib.parse import urlencode
+        params = {
+            "filter": api_filter,
+            "per_page": min(k, 200),
+            "cursor": "*",
+            **extra_params,
+        }
+        query_string = urlencode(params)
+        debug_url = f"https://api.openalex.org/works?{query_string}"
+        console.print(f"\n[dim]DEBUG: API Request URL (truncated to 500 chars):[/dim]")
+        console.print(f"[dim]{debug_url[:500]}...[/dim]\n")
 
         data = await client.fetch_page(api_filter, cursor="*", extra_params=extra_params)
         if data:
