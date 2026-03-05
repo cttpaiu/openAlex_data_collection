@@ -257,16 +257,18 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
     """Use OpenAlex API's built-in sample parameter (default method).
 
     OpenAlex docs: https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/sample-entity-lists
-    
+
     Fast sampling using the native sample parameter.
     For statistically rigorous sampling, use --reservoir flag instead.
+    
+    Note: OpenAlex returns max 200 papers per page, so we paginate if k > 200.
     """
     results: List[Dict] = []
-
+    
     async with AsyncOpenAlexClient(
         api_key=cfg.api_key,
         email=cfg.email,
-        per_page=min(k, 200),
+        per_page=200,  # Always use max page size
         max_retries=cfg.max_retries,
         retry_delay=cfg.retry_delay,
         concurrent_requests=cfg.concurrent_requests,
@@ -278,20 +280,16 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
         if seed is not None:
             extra_params["seed"] = seed
 
-        # DEBUG: Print the actual API URL being sent
-        from urllib.parse import urlencode
-        params = {
-            "filter": api_filter,
-            "per_page": min(k, 200),
-            "cursor": "*",
-            **extra_params,
-        }
-        query_string = urlencode(params)
-        debug_url = f"https://api.openalex.org/works?{query_string}"
-        console.print(f"[dim]API: {debug_url[:300]}...[/dim]\n")
-
-        data = await client.fetch_page(api_filter, cursor="*", extra_params=extra_params)
-        if data:
-            results = data.get("results", [])
+        # Fetch with sample parameter - may need multiple pages for k > 200
+        cursor = "*"
+        while cursor and len(results) < k:
+            data = await client.fetch_page(api_filter, cursor=cursor, extra_params=extra_params)
+            if not data:
+                break
+            batch = data.get("results", [])
+            if not batch:
+                break
+            results.extend(batch)
+            cursor = data["meta"].get("next_cursor")
 
     return results
