@@ -8,11 +8,10 @@ import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 import click
 from rich.console import Console
-from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
@@ -26,6 +25,47 @@ console = Console()
 BYTES_PER_PAPER = 8_700  # ~8.5 KB average per paper
 MIN_FREE_BYTES_MULTIPLIER = 2
 
+
+# ---------------------------------------------------------------------------
+# Cursor-progress helpers
+# ---------------------------------------------------------------------------
+
+def _progress_file(output_path: str) -> Path:
+    """Return the path of the cursor-progress sidecar file."""
+    return Path(output_path).with_suffix(".download_progress.json")
+
+
+def _load_cursor_state(output_path: str) -> Dict[str, Any]:
+    """Load saved cursor positions; return empty dict if none exist."""
+    pf = _progress_file(output_path)
+    if pf.exists():
+        try:
+            with open(pf, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"batches": {}}
+
+
+def _save_cursor_state(output_path: str, state: Dict[str, Any]) -> None:
+    """Atomically write cursor state to the sidecar file."""
+    pf = _progress_file(output_path)
+    tmp = pf.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    tmp.replace(pf)
+
+
+def _mark_batch_done(output_path: str, state: Dict[str, Any], batch_key: str) -> None:
+    """Mark a batch as fully completed (cursor = null)."""
+    state["batches"].setdefault(batch_key, {})["last_cursor"] = None
+    state["batches"][batch_key]["done"] = True
+    _save_cursor_state(output_path, state)
+
+
+# ---------------------------------------------------------------------------
+# Click command
+# ---------------------------------------------------------------------------
 
 @click.command("download")
 @click.option("--config", "config_path", default="config/collection.yml", show_default=True)
@@ -104,33 +144,45 @@ def download_command(config_path: str, no_topics: bool, output: str) -> None:
     asyncio.run(_run_download(cfg, api_filter, output_path, total, topics))
 
 
+# ---------------------------------------------------------------------------
+# Async helpers
+# ---------------------------------------------------------------------------
+
 async def _get_count(cfg: Any, api_filter: str) -> int:
-    async with AsyncOpenAlexClient(
-        api_key=cfg.api_key, email=cfg.email, max_retries=cfg.max_retries, retry_delay=cfg.retry_delay
-    ) as client:
-        return await client.get_total_count(api_filter)
+    try:
+        async with AsyncOpenAlexClient(
+            api_key=cfg.api_key,
+            email=cfg.email,
+            max_retries=cfg.max_retries,
+            retry_delay=cfg.retry_delay,
+        ) as client:
+            count = await client.get_total_count(api_filter)
+            if count == 0:
+                console.print("[yellow]⚠ API returned 0 papers - check API key and filters[/yellow]")
+            return count
+    except Exception as e:
+        console.print(f"[red]✗ Error getting paper count: {e}[/red]")
+        console.print("[dim]Check your API key in config/collection.yml[/dim]")
+        return 0
 
 
 async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int, topics: List[str]) -> None:
     progress_counter: Counter = Counter()
     start_time = time.time()
 
-    # Check if file exists and count existing papers (for resumable download)
-    existing_ids: set[str] = set()
+    # Load cursor state saved from a previous run
+    cursor_state = _load_cursor_state(output_path)
+
+    # Count already-written papers for the progress bar starting point
     resume_count = 0
     output_file = Path(output_path)
-    
     if output_file.exists():
-        console.print("[yellow]⚠ Output file exists - will resume from existing papers[/yellow]")
-        with open(output_file, 'r', encoding='utf-8') as f:
+        console.print("[yellow]⚠ Output file exists - resuming from saved cursor positions[/yellow]")
+        with open(output_file, "r", encoding="utf-8") as f:
             for line in f:
-                try:
-                    paper = json.loads(line.strip())
-                    existing_ids.add(paper.get('id', ''))
+                if line.strip():
                     resume_count += 1
-                except:
-                    pass
-        console.print(f"[dim]  Found {resume_count:,} existing papers (will skip duplicates)[/dim]\n")
+        console.print(f"[dim]  Found {resume_count:,} existing papers[/dim]\n")
 
     with Progress(
         SpinnerColumn(),
@@ -143,10 +195,10 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
     ) as progress:
         task = progress.add_task("Downloading papers...", total=total)
         progress_counter["collected"] = resume_count
-        progress.update(task, completed=resume_count)  # Set initial progress
+        progress.update(task, completed=resume_count)
 
-        async with BufferedWriter(output_path, mode='a') as writer:
-            # Split topics into batches or use single stream
+        async with BufferedWriter(output_path, mode="a") as writer:
+            # Build batches
             if topics:
                 batches = [
                     topics[i:i + cfg.batch_size_topics]
@@ -166,10 +218,20 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
                 concurrent_requests=cfg.concurrent_requests,
             ) as client:
                 tasks = [
-                    _process_batch(client, batch, api_filter, writer, progress_counter, semaphore, topics, existing_ids)
-                    for batch in batches
+                    _process_batch(
+                        client=client,
+                        batch=batch,
+                        batch_index=i,
+                        base_filter=api_filter,
+                        writer=writer,
+                        counter=progress_counter,
+                        semaphore=semaphore,
+                        all_topics=topics,
+                        output_path=output_path,
+                        cursor_state=cursor_state,
+                    )
+                    for i, batch in enumerate(batches)
                 ]
-                # Update progress periodically
                 update_task = asyncio.create_task(
                     _update_progress(progress, task, progress_counter, total)
                 )
@@ -186,25 +248,43 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
         f"  Time elapsed:     [dim]{elapsed / 60:.1f} min[/dim]"
     )
 
+    # Clean up sidecar file on successful completion if all batches are done
+    pf = _progress_file(output_path)
+    all_done = all(
+        v.get("done") for v in cursor_state.get("batches", {}).values()
+    )
+    if all_done and pf.exists():
+        pf.unlink()
+        console.print("[dim]  Progress file removed (all batches complete).[/dim]")
+
 
 async def _process_batch(
     client: AsyncOpenAlexClient,
-    batch: list | None,
+    batch: Optional[list],
+    batch_index: int,
     base_filter: str,
     writer: BufferedWriter,
     counter: Counter,
     semaphore: asyncio.Semaphore,
     all_topics: list,
-    existing_ids: set[str],
+    output_path: str,
+    cursor_state: Dict[str, Any],
 ) -> None:
-    """Process one topic batch (or full download if no topics)."""
+    """Process one topic batch (or full download if no topics), resuming from saved cursor."""
+
+    batch_key = str(batch_index)
+
+    # Skip this batch if it was already fully completed in a previous run
+    batch_info = cursor_state["batches"].get(batch_key, {})
+    if batch_info.get("done"):
+        console.print(f"[dim]  Batch {batch_index}: already complete, skipping.[/dim]")
+        return
+
+    # Resume from the last saved cursor, or start from the beginning
+    saved_cursor: str = batch_info.get("last_cursor") or "*"
+
     if batch is not None:
         topic_str = "|".join(batch)
-        # Replace topics portion of filter
-        parts = base_filter.split(",")
-        # Rebuild with this batch's topics
-        from openalex.utils import build_filter as _bf
-        # Extract other parts (keywords, dates, types) from existing filter
         filter_str = base_filter.replace(
             f"primary_topic.id:{'|'.join(all_topics)}" if all_topics else "",
             f"primary_topic.id:{topic_str}",
@@ -212,29 +292,42 @@ async def _process_batch(
     else:
         filter_str = base_filter
 
-    cursor = "*"
-    skipped = 0
+    if saved_cursor != "*":
+        console.print(f"[dim]  Batch {batch_index}: resuming from saved cursor (skipping already-fetched pages).[/dim]")
+
+    cursor: Optional[str] = saved_cursor
+    collected_in_batch = 0
+
     async with semaphore:
         while cursor:
             data = await client.fetch_page(filter_str, cursor)
             if not data:
-                console.print(f"[red]✗ API returned empty response at cursor {cursor[:50]}...[/red]")
+                console.print(f"[red]✗ API returned empty response at batch {batch_index}[/red]")
                 break
+
             results = data.get("results", [])
             if not results:
                 break
-            cursor = data["meta"].get("next_cursor")
+
+            # Advance cursor BEFORE writing so a crash mid-page is safe to retry
+            next_cursor: Optional[str] = data["meta"].get("next_cursor")
+
             for paper in results:
-                paper_id = paper.get('id', '')
-                # Skip if already downloaded
-                if existing_ids and paper_id in existing_ids:
-                    skipped += 1
-                    continue
                 await writer.write(json.dumps(paper))
                 counter["collected"] += 1
-    
-    if skipped > 0:
-        console.print(f"[dim]  Skipped {skipped:,} duplicate papers in this batch[/dim]")
+                collected_in_batch += 1
+
+            # Persist the cursor we are about to move to
+            cursor_state["batches"].setdefault(batch_key, {})
+            cursor_state["batches"][batch_key]["last_cursor"] = next_cursor
+            cursor_state["batches"][batch_key]["topics"] = batch  # informational
+            _save_cursor_state(output_path, cursor_state)
+
+            cursor = next_cursor
+
+    # Mark batch fully done
+    _mark_batch_done(output_path, cursor_state, batch_key)
+    console.print(f"[dim]  Batch {batch_index}: collected {collected_in_batch:,} papers.[/dim]")
 
 
 async def _update_progress(progress: Progress, task: Any, counter: Counter, total: int) -> None:
