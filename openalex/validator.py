@@ -30,7 +30,11 @@ def validate_keywords(query: str) -> list[str]:
     if q.count('"') % 2 != 0:
         errors.append("Odd number of double quotes — every \" must have a closing \".")
 
-    if re.search(r"\b(and|or|not)\b", q):
+    # Remove quoted strings before checking for lowercase operators
+    # This allows phrases like "cloning and characterization" inside quotes
+    q_no_quotes = re.sub(r'"[^"]*"', '', q)
+    
+    if re.search(r"\b(and|or|not)\b", q_no_quotes):
         errors.append("Operators must be uppercase: use OR, AND, NOT.")
 
     # AND NOT / OR NOT are valid Boolean patterns; only flag true duplicates
