@@ -273,23 +273,37 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
         retry_delay=cfg.retry_delay,
         concurrent_requests=cfg.concurrent_requests,
     ) as client:
-        extra_params = {
-            "select": SAMPLE_FIELDS,
-            "sample": k,
-        }
-        if seed is not None:
-            extra_params["seed"] = seed
+        # For k > 200, we need to make multiple requests with different seeds
+        # because OpenAlex sample parameter doesn't support cursor pagination
+        pages_needed = (k // 200) + 1
+        
+        for page in range(pages_needed):
+            extra_params = {
+                "select": SAMPLE_FIELDS,
+                "sample": min(200, k - len(results)),
+            }
+            # Use different seed for each page to get different samples
+            if seed is not None:
+                extra_params["seed"] = seed + page
+            else:
+                # Random seed based on timestamp + page
+                extra_params["seed"] = int(datetime.now().timestamp() * 1000) + page
 
-        # Fetch with sample parameter - may need multiple pages for k > 200
-        cursor = "*"
-        while cursor and len(results) < k:
-            data = await client.fetch_page(api_filter, cursor=cursor, extra_params=extra_params)
+            data = await client.fetch_page(api_filter, cursor="*", extra_params=extra_params)
             if not data:
                 break
             batch = data.get("results", [])
             if not batch:
                 break
-            results.extend(batch)
-            cursor = data["meta"].get("next_cursor")
+            
+            # Filter out duplicates by ID
+            existing_ids = {p["id"] for p in results}
+            new_papers = [p for p in batch if p["id"] not in existing_ids]
+            results.extend(new_papers)
+            
+            console.print(f"[dim]  Fetched {len(results)}/{k} papers...[/dim]")
+            
+            if len(results) >= k:
+                break
 
-    return results
+    return results[:k]
