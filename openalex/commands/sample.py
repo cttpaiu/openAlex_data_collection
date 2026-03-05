@@ -36,15 +36,12 @@ SAMPLE_FIELDS = (
 @click.option("--csv", "save_csv", is_flag=True, help="Save sample to CSV automatically")
 @click.option("--output", "-o", default=None, help="Output CSV filename (used with --csv)")
 @click.option("--seed", type=int, default=None, help="Random seed for reproducibility")
-@click.option("--fast", is_flag=True, help="Use OpenAlex sample API (fast but BIASED - not recommended)")
-def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save_csv: bool, output: str, seed: int, fast: bool) -> None:
+@click.option("--reservoir", is_flag=True, help="Use reservoir sampling (slow but statistically valid - scans all papers)")
+def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save_csv: bool, output: str, seed: int, reservoir: bool) -> None:
     """Take a random validation sample from matching papers.
 
-    Uses reservoir sampling for statistically valid random sampling.
-    Every paper has equal probability of selection.
-
-    Note: For large datasets (500k+ papers), this may take 5-10 minutes.
-    Use --fast for quick exploration (but sample may be biased).
+    Default: Uses OpenAlex's built-in sample parameter (fast).
+    With --reservoir: Scans all papers for statistically valid random sampling.
     """
     cfg = load_config(config_path)
     cfg.validate_api_key()
@@ -86,13 +83,12 @@ def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save
     total_count = asyncio.run(_get_count(cfg, api_filter))
     console.print(f"[dim]Total matching papers: {total_count:,}[/dim]\n")
 
-    if fast:
-        console.print(f"\n[yellow]⚠ Using OpenAlex sample API (fast)[/yellow]")
-        console.print(f"[dim]Note: If results seem biased, try without --fast (slower but scans all papers)[/dim]\n")
-        sampled = asyncio.run(_fetch_sample_fast(cfg, api_filter, size, seed))
-    else:
+    if reservoir:
         console.print(f"\n[dim]Using reservoir sampling (scans all {total_count:,} papers...)[/dim]")
         sampled = asyncio.run(_reservoir_sample(cfg, api_filter, size, seed))
+    else:
+        # Default: Use OpenAlex sample API (fast)
+        sampled = asyncio.run(_fetch_sample_fast(cfg, api_filter, size, seed))
 
     if not sampled:
         console.print("[yellow]⚠ No papers returned.[/yellow]")
@@ -258,9 +254,12 @@ async def _reservoir_sample(cfg: Any, api_filter: str, k: int, seed: Optional[in
 
 
 async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[int] = None) -> List[Dict]:
-    """Fast sampling using OpenAlex's sample parameter.
+    """Use OpenAlex API's built-in sample parameter (default method).
 
     OpenAlex docs: https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/sample-entity-lists
+    
+    Fast sampling using the native sample parameter.
+    For statistically rigorous sampling, use --reservoir flag instead.
     """
     results: List[Dict] = []
 
@@ -289,8 +288,7 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
         }
         query_string = urlencode(params)
         debug_url = f"https://api.openalex.org/works?{query_string}"
-        console.print(f"\n[dim]DEBUG: API Request URL (truncated to 500 chars):[/dim]")
-        console.print(f"[dim]{debug_url[:500]}...[/dim]\n")
+        console.print(f"[dim]API: {debug_url[:300]}...[/dim]\n")
 
         data = await client.fetch_page(api_filter, cursor="*", extra_params=extra_params)
         if data:
