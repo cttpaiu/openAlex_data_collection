@@ -12,14 +12,13 @@ import aiohttp
 class BufferedWriter:
     """Async buffered JSONL writer — minimises disk I/O."""
 
-    def __init__(self, filename: str, buffer_size: int = 1000, mode: str = "w", skip_existing: bool = False):
+    def __init__(self, filename: str, buffer_size: int = 1000, mode: str = "w"):
         self.filename = filename
         self.buffer: list[str] = []
         self.buffer_size = buffer_size
         self.lock = asyncio.Lock()
         self.file = None
         self.mode = mode
-        self.skip_existing = skip_existing
 
     async def __aenter__(self) -> "BufferedWriter":
         self.file = open(self.filename, self.mode, encoding="utf-8", buffering=8192 * 4)

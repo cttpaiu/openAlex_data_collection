@@ -137,15 +137,15 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
         TextColumn("[bold blue]{task.description}"),
         BarColumn(),
         TextColumn("[green]{task.completed:,}[/green]/[dim]{task.total:,}[/dim]"),
-        TextColumn("[dim](+{resume_count:,} existing)[/dim]" if resume_count > 0 else TextColumn("")),
         TimeElapsedColumn(),
         console=console,
         transient=False,
     ) as progress:
         task = progress.add_task("Downloading papers...", total=total)
         progress_counter["collected"] = resume_count
+        progress.update(task, completed=resume_count)  # Set initial progress
 
-        async with BufferedWriter(output_path, mode='a', skip_existing=resume_count > 0) as writer:
+        async with BufferedWriter(output_path, mode='a') as writer:
             # Split topics into batches or use single stream
             if topics:
                 batches = [
