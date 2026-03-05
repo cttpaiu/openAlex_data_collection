@@ -115,18 +115,37 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
     progress_counter: Counter = Counter()
     start_time = time.time()
 
+    # Check if file exists and count existing papers (for resumable download)
+    existing_ids: set[str] = set()
+    resume_count = 0
+    output_file = Path(output_path)
+    
+    if output_file.exists():
+        console.print("[yellow]⚠ Output file exists - will resume from existing papers[/yellow]")
+        with open(output_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    paper = json.loads(line.strip())
+                    existing_ids.add(paper.get('id', ''))
+                    resume_count += 1
+                except:
+                    pass
+        console.print(f"[dim]  Found {resume_count:,} existing papers (will skip duplicates)[/dim]\n")
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold blue]{task.description}"),
         BarColumn(),
         TextColumn("[green]{task.completed:,}[/green]/[dim]{task.total:,}[/dim]"),
+        TextColumn("[dim](+{resume_count:,} existing)[/dim]" if resume_count > 0 else TextColumn("")),
         TimeElapsedColumn(),
         console=console,
         transient=False,
     ) as progress:
         task = progress.add_task("Downloading papers...", total=total)
+        progress_counter["collected"] = resume_count
 
-        async with BufferedWriter(output_path) as writer:
+        async with BufferedWriter(output_path, mode='a', skip_existing=resume_count > 0) as writer:
             # Split topics into batches or use single stream
             if topics:
                 batches = [
@@ -147,7 +166,7 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
                 concurrent_requests=cfg.concurrent_requests,
             ) as client:
                 tasks = [
-                    _process_batch(client, batch, api_filter, writer, progress_counter, semaphore, topics)
+                    _process_batch(client, batch, api_filter, writer, progress_counter, semaphore, topics, existing_ids)
                     for batch in batches
                 ]
                 # Update progress periodically
@@ -159,9 +178,10 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
 
     elapsed = time.time() - start_time
     collected = progress_counter["collected"]
+    new_papers = collected - resume_count
     console.print(
         f"\n[bold green]✓ Download complete![/bold green]\n"
-        f"  Papers collected: [green]{collected:,}[/green]\n"
+        f"  Papers collected: [green]{collected:,}[/green] ([dim]+{new_papers:,} new, {resume_count:,} existing[/dim])\n"
         f"  Output file:      [cyan]{output_path}[/cyan]\n"
         f"  Time elapsed:     [dim]{elapsed / 60:.1f} min[/dim]"
     )
@@ -175,6 +195,7 @@ async def _process_batch(
     counter: Counter,
     semaphore: asyncio.Semaphore,
     all_topics: list,
+    existing_ids: set[str],
 ) -> None:
     """Process one topic batch (or full download if no topics)."""
     if batch is not None:
@@ -192,18 +213,28 @@ async def _process_batch(
         filter_str = base_filter
 
     cursor = "*"
+    skipped = 0
     async with semaphore:
         while cursor:
             data = await client.fetch_page(filter_str, cursor)
             if not data:
+                console.print(f"[red]✗ API returned empty response at cursor {cursor[:50]}...[/red]")
                 break
             results = data.get("results", [])
             if not results:
                 break
             cursor = data["meta"].get("next_cursor")
             for paper in results:
+                paper_id = paper.get('id', '')
+                # Skip if already downloaded
+                if existing_ids and paper_id in existing_ids:
+                    skipped += 1
+                    continue
                 await writer.write(json.dumps(paper))
                 counter["collected"] += 1
+    
+    if skipped > 0:
+        console.print(f"[dim]  Skipped {skipped:,} duplicate papers in this batch[/dim]")
 
 
 async def _update_progress(progress: Progress, task: Any, counter: Counter, total: int) -> None:
