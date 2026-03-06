@@ -141,6 +141,30 @@ def download_command(config_path: str, no_topics: bool, output: str) -> None:
 
     console.print(f"\n[bold]Downloading to:[/bold] [cyan]{output_path}[/cyan]\n")
 
+    # Guard: output file exists but no progress sidecar → appending would create duplicates
+    output_file = Path(output_path)
+    progress_file = _progress_file(output_path)
+    if output_file.exists() and not progress_file.exists():
+        existing_count = sum(1 for ln in open(output_file) if ln.strip())
+        if existing_count > 0:
+            console.print(
+                f"[bold yellow]⚠ Output file already has {existing_count:,} papers "
+                f"but no resume-progress file was found.[/bold yellow]\n"
+                f"[dim]  Appending without cursor tracking will create duplicates.[/dim]"
+            )
+            action = questionary.select(
+                "What would you like to do?",
+                choices=[
+                    "Abort — I will check the file manually",
+                    "Overwrite — delete existing file and start fresh",
+                ],
+            ).ask()
+            if action is None or action.startswith("Abort"):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+            output_file.unlink()
+            console.print("[dim]  Existing file removed. Starting fresh download.[/dim]\n")
+
     asyncio.run(_run_download(cfg, api_filter, output_path, total, topics))
 
 
@@ -177,12 +201,13 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
     resume_count = 0
     output_file = Path(output_path)
     if output_file.exists():
-        console.print("[yellow]⚠ Output file exists - resuming from saved cursor positions[/yellow]")
         with open(output_file, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     resume_count += 1
-        console.print(f"[dim]  Found {resume_count:,} existing papers[/dim]\n")
+        if resume_count > 0:
+            console.print("[yellow]⚠ Output file exists - resuming from saved cursor positions[/yellow]")
+            console.print(f"[dim]  Found {resume_count:,} existing papers[/dim]\n")
 
     with Progress(
         SpinnerColumn(),
@@ -237,25 +262,43 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
                 )
                 await asyncio.gather(*tasks)
                 update_task.cancel()
+                # Snap to real final count now that all batches are truly done
+                final_count = progress_counter["collected"]
+                progress.update(task, completed=final_count, total=final_count)
 
     elapsed = time.time() - start_time
     collected = progress_counter["collected"]
     new_papers = collected - resume_count
-    console.print(
-        f"\n[bold green]✓ Download complete![/bold green]\n"
-        f"  Papers collected: [green]{collected:,}[/green] ([dim]+{new_papers:,} new, {resume_count:,} existing[/dim])\n"
-        f"  Output file:      [cyan]{output_path}[/cyan]\n"
-        f"  Time elapsed:     [dim]{elapsed / 60:.1f} min[/dim]"
-    )
 
-    # Clean up sidecar file on successful completion if all batches are done
+    # Check if any batches aborted mid-way
     pf = _progress_file(output_path)
     all_done = all(
         v.get("done") for v in cursor_state.get("batches", {}).values()
     )
-    if all_done and pf.exists():
-        pf.unlink()
-        console.print("[dim]  Progress file removed (all batches complete).[/dim]")
+    incomplete_batches = [
+        k for k, v in cursor_state.get("batches", {}).items() if not v.get("done")
+    ]
+
+    if all_done:
+        console.print(
+            f"\n[bold green]✓ Download complete![/bold green]\n"
+            f"  Papers collected: [green]{collected:,}[/green] ([dim]+{new_papers:,} new, {resume_count:,} existing[/dim])\n"
+            f"  Output file:      [cyan]{output_path}[/cyan]\n"
+            f"  Time elapsed:     [dim]{elapsed / 60:.1f} min[/dim]"
+        )
+        if pf.exists():
+            pf.unlink()
+            console.print("[dim]  Progress file removed (all batches complete).[/dim]")
+    else:
+        console.print(
+            f"\n[bold yellow]⚠ Download incomplete — API limit likely reached.[/bold yellow]\n"
+            f"  Papers collected so far: [yellow]{collected:,}[/yellow] / [dim]{total:,} expected[/dim]\n"
+            f"  Incomplete batches:      [yellow]{', '.join(incomplete_batches)}[/yellow]\n"
+            f"  Output file:             [cyan]{output_path}[/cyan]\n"
+            f"  Time elapsed:            [dim]{elapsed / 60:.1f} min[/dim]\n"
+            f"\n  [dim]Re-run the same command once your API rate limit resets — "
+            f"it will resume from where it stopped.[/dim]"
+        )
 
 
 async def _process_batch(
@@ -285,10 +328,13 @@ async def _process_batch(
 
     if batch is not None:
         topic_str = "|".join(batch)
-        filter_str = base_filter.replace(
-            f"primary_topic.id:{'|'.join(all_topics)}" if all_topics else "",
-            f"primary_topic.id:{topic_str}",
-        )
+        full_topic_filter = f"primary_topic.id:{'|'.join(all_topics)}"
+        if full_topic_filter not in base_filter:
+            raise RuntimeError(
+                f"Could not locate topic filter in base_filter for batch {batch_index}. "
+                "This is a bug — please report it."
+            )
+        filter_str = base_filter.replace(full_topic_filter, f"primary_topic.id:{topic_str}")
     else:
         filter_str = base_filter
 
@@ -297,17 +343,23 @@ async def _process_batch(
 
     cursor: Optional[str] = saved_cursor
     collected_in_batch = 0
+    aborted = False  # True if loop exited due to error, not natural end of pages
 
     async with semaphore:
         while cursor:
             data = await client.fetch_page(filter_str, cursor)
             if not data:
-                console.print(f"[red]✗ API returned empty response at batch {batch_index}[/red]")
+                console.print(
+                    f"[bold red]✗ Batch {batch_index}: API returned no data "
+                    f"(rate limit exhausted or network error). "
+                    f"Batch is incomplete — re-run to resume.[/bold red]"
+                )
+                aborted = True
                 break
 
             results = data.get("results", [])
             if not results:
-                break
+                break  # natural end of pagination
 
             # Advance cursor BEFORE writing so a crash mid-page is safe to retry
             next_cursor: Optional[str] = data["meta"].get("next_cursor")
@@ -325,12 +377,21 @@ async def _process_batch(
 
             cursor = next_cursor
 
-    # Mark batch fully done
-    _mark_batch_done(output_path, cursor_state, batch_key)
-    console.print(f"[dim]  Batch {batch_index}: collected {collected_in_batch:,} papers.[/dim]")
+    if aborted:
+        # Do NOT mark done — keep the last saved cursor so next run can resume
+        console.print(f"[yellow]  Batch {batch_index}: saved cursor for resume ({collected_in_batch:,} papers collected so far).[/yellow]")
+    else:
+        # Natural end of pagination — mark fully done
+        _mark_batch_done(output_path, cursor_state, batch_key)
+        console.print(f"[dim]  Batch {batch_index}: collected {collected_in_batch:,} papers.[/dim]")
 
 
 async def _update_progress(progress: Progress, task: Any, counter: Counter, total: int) -> None:
     while True:
         await asyncio.sleep(1)
-        progress.update(task, completed=min(counter["collected"], total))
+        current = counter["collected"]
+        # Keep effective total always ahead of current so the bar never falsely
+        # shows 100% — the API count is an estimate and batch sums can exceed it.
+        # The bar only reaches 100% after gather() completes and we snap it there.
+        effective_total = max(total, current + 1)
+        progress.update(task, completed=current, total=effective_total)

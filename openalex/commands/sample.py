@@ -261,7 +261,11 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
     Fast sampling using the native sample parameter.
     For statistically rigorous sampling, use --reservoir flag instead.
     
-    Note: OpenAlex returns max 200 papers per page, so we paginate if k > 200.
+    Note: OpenAlex returns max 200 papers per page, so we make multiple requests
+    with different random seeds to get k > 200 papers.
+    
+    By default, uses random seeds for different samples each run.
+    Use --seed flag for reproducible samples.
     """
     results: List[Dict] = []
     
@@ -277,17 +281,21 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
         # because OpenAlex sample parameter doesn't support cursor pagination
         pages_needed = (k // 200) + 1
         
+        # Generate random base seed if not provided (ensures different sample each run)
+        if seed is None:
+            # Use microseconds for high entropy - guarantees different seed each run
+            base_seed = int(datetime.now().timestamp() * 1_000_000) % (2**31)
+            console.print(f"[dim]Using random seed: {base_seed} (use --seed {base_seed} to reproduce this sample)[/dim]\n")
+        else:
+            base_seed = seed
+            console.print(f"[dim]Using fixed seed: {seed} (reproducible sample)[/dim]\n")
+        
         for page in range(pages_needed):
             extra_params = {
                 "select": SAMPLE_FIELDS,
                 "sample": min(200, k - len(results)),
+                "seed": base_seed + page,  # Different seed for each page
             }
-            # Use different seed for each page to get different samples
-            if seed is not None:
-                extra_params["seed"] = seed + page
-            else:
-                # Random seed based on timestamp + page
-                extra_params["seed"] = int(datetime.now().timestamp() * 1000) + page
 
             data = await client.fetch_page(api_filter, cursor="*", extra_params=extra_params)
             if not data:
