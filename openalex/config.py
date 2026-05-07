@@ -30,6 +30,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "keywords_file": "config/keywords.txt",
     "topics_file": "config/topics.txt",
+    "anchor_file": "config/anchor.txt",
     "collection": {
         "batch_size_topics": 10,
         "per_page": 200,
@@ -90,6 +91,15 @@ DEFAULT_TOPICS_HEADER = """\
 # T10682
 """
 
+DEFAULT_ANCHORS_HEADER = """\
+# One anchor paper per line: either DOI or full title.
+# These are must-find papers that should appear in your search result set.
+# Examples:
+# 10.1038/nphys1170
+# https://doi.org/10.1038/nature23474
+# Quantum supremacy using a programmable superconducting processor
+"""
+
 
 @dataclass
 class AppConfig:
@@ -101,6 +111,7 @@ class AppConfig:
     doc_types: list[str]
     keywords_file: str
     topics_file: str
+    anchor_file: str
     batch_size_topics: int
     per_page: int
     concurrent_requests: int
@@ -111,6 +122,7 @@ class AppConfig:
 
     _keywords: str | None = field(default=None, repr=False)
     _topics: list[str] | None = field(default=None, repr=False)
+    _anchors: list[str] | None = field(default=None, repr=False)
 
     def get_keywords(self) -> str:
         if self._keywords is None:
@@ -139,6 +151,19 @@ class AppConfig:
                 if line.strip() and not line.strip().startswith("#")
             ]
         return self._topics
+
+    def get_anchors(self) -> list[str]:
+        if self._anchors is None:
+            anchor_path = Path(self.anchor_file)
+            if not anchor_path.exists():
+                return []
+            lines = anchor_path.read_text(encoding="utf-8").splitlines()
+            self._anchors = [
+                line.strip()
+                for line in lines
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        return self._anchors
 
     def validate_api_key(self) -> None:
         if not self.api_key or self.api_key == "YOUR_API_KEY_HERE":
@@ -175,6 +200,7 @@ def load_config(config_path: str = "config/collection.yml") -> AppConfig:
         doc_types=filters.get("doc_types", ["article", "review", "proceedings-article"]),
         keywords_file=raw.get("keywords_file", "config/keywords.txt"),
         topics_file=raw.get("topics_file", "config/topics.txt"),
+        anchor_file=raw.get("anchor_file", "config/anchor.txt"),
         batch_size_topics=coll.get("batch_size_topics", 10),
         per_page=coll.get("per_page", 200),
         concurrent_requests=coll.get("concurrent_requests", 10),
@@ -217,6 +243,13 @@ def init_command(force: bool) -> None:
         created.append(str(topics_file))
     else:
         skipped.append(str(topics_file))
+
+    anchor_file = CONFIG_DIR / "anchor.txt"
+    if not anchor_file.exists() or force:
+        anchor_file.write_text(DEFAULT_ANCHORS_HEADER, encoding="utf-8")
+        created.append(str(anchor_file))
+    else:
+        skipped.append(str(anchor_file))
 
     lines = []
     for f in created:

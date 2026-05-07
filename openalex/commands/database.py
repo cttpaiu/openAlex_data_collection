@@ -199,6 +199,12 @@ class OpenAlexLoader:
         except Exception:
             return None
 
+    def _first_nonempty_affiliation(self, raw_affs: list[str]) -> str | None:
+        for raw in raw_affs:
+            if raw and raw.strip():
+                return raw.strip()
+        return None
+
     def process_record(self, record: Dict) -> None:
         paper_id = self._extract_id(record.get("id"))
         if not paper_id:
@@ -282,15 +288,16 @@ class OpenAlexLoader:
                 else:
                     countries = authorship.get("countries", [])
                     ac = countries[0] if countries else None
+                    raw_aff = self._first_nonempty_affiliation(raw_affs)
                     if ac:
                         self._ensure_country(ac)
                     self.con.execute(
                         """INSERT INTO contributions (row_id, paper_id, author_id, institution_id,
                            country_code, author_name, author_position, is_corresponding, raw_affiliation_string)
-                           VALUES (nextval('seq_contrib'),?,?,NULL,?,?,?,?,NULL)""",
+                           VALUES (nextval('seq_contrib'),?,?,NULL,?,?,?,?,?)""",
                         [paper_id, author_id, ac,
                          authorship.get("raw_author_name"), authorship.get("author_position"),
-                         authorship.get("is_corresponding")],
+                         authorship.get("is_corresponding"), raw_aff],
                     )
                     self.stats["contributions"] += 1
 
