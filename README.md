@@ -62,6 +62,8 @@ uv run openalex sample --size 385    # random validation sample
 uv run openalex download             # download all → JSONL (~820 MB)
 uv run openalex convert-to-db        # JSONL → DuckDB
 uv run openalex check-db             # completeness health report
+uv run openalex impute-country --dry-run   # preview country imputation from affiliations
+uv run openalex impute-country --llm-fallback --llm-batch-size 20   # rule + batched Groq fallback
 ```
 
 ## Commands
@@ -78,6 +80,7 @@ uv run openalex check-db             # completeness health report
 | `openalex download` | Download all matching papers to JSONL |
 | `openalex convert-to-db` | Load JSONL into normalised DuckDB (5-table schema) |
 | `openalex check-db` | Completeness health report (Tier 1/2/3 classification) |
+| `openalex impute-country` | Impute missing `contributions.country_code` from `raw_affiliation_string` (rule-first; optional batched LLM fallback) |
 | `openalex export-format` | Export to analysis CSVs *(coming soon)* |
 
 ## Config Files
