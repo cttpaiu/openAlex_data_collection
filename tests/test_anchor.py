@@ -62,11 +62,17 @@ async def test_check_anchor_coverage_marks_found_and_missing():
 
     title_client = AsyncMock()
     title_client.__aenter__.return_value = title_client
+    # New impl fires one fetch_page per title anchor (not a full crawl).
+    # Two title anchors → two side_effect responses.
     title_client.fetch_page = AsyncMock(side_effect=[
         {
             "results": [{"title": "Quantum supremacy, using a programmable superconducting processor"}],
             "meta": {"next_cursor": None},
-        }
+        },
+        {
+            "results": [],
+            "meta": {"next_cursor": None},
+        },
     ])
 
     with patch("openalex.anchors.AsyncOpenAlexClient", side_effect=[doi_client, title_client]):

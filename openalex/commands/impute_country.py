@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -221,25 +221,18 @@ def _query_groq_batch(api_key: str, model: str, batch_rows: list[dict[str, Any]]
         "temperature": 0,
         "max_tokens": 1800,
     }
-    proc = subprocess.run(
-        [
-            "curl",
-            "-sS",
-            "https://api.groq.com/openai/v1/chat/completions",
-            "-H",
-            f"Authorization: Bearer {api_key}",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            json.dumps(body),
-        ],
-        capture_output=True,
-        text=True,
+    body_bytes = json.dumps(body).encode()
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=body_bytes,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    if proc.returncode != 0:
-        raise RuntimeError(f"curl failed: {(proc.stderr or '').strip()}")
-
-    payload = json.loads((proc.stdout or "").strip())
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        payload = json.loads(resp.read().decode())
     if "error" in payload:
         err = payload["error"]
         raise RuntimeError(f"Groq API error ({err.get('code','unknown')}): {err.get('message', err)}")

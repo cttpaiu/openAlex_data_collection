@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
+"""Eval script: compare rule-based vs Groq LLM country imputation on a sample CSV.
+
+Usage:
+    GROQ_API_KEY=gsk_... python compare_impute_groq.py --csv path/to/sample.csv
+    python compare_impute_groq.py --csv path/to/sample.csv --groq-api-key gsk_...
+"""
 from __future__ import annotations
 
+import argparse
 import csv
 import json
+import os
 import re
-import subprocess
 import time
+import urllib.request
 from pathlib import Path
 
-
-
 MODEL = "llama-3.1-8b-instant"
-GROQ_API_KEY = ""  # Paste your Groq API key here
-CSV_PATH = Path(
-    "/Users/sruthikalyani/.copilot/session-state/3ab2dd19-244c-45aa-b52b-09e18f0ff5d2/files/impute_compare_20.csv"
-)
 
 
 def ask_llm(api_key: str, affiliation: str) -> tuple[str, str, float]:
@@ -30,44 +32,30 @@ def ask_llm(api_key: str, affiliation: str) -> tuple[str, str, float]:
         "temperature": 0,
         "max_tokens": 120,
     }
-    payload_str = json.dumps(body)
+    body_bytes = json.dumps(body).encode()
     last_error = ""
     t0 = time.time()
     for attempt in range(3):
-        proc = subprocess.run(
-            [
-                "curl",
-                "-sS",
-                "https://api.groq.com/openai/v1/chat/completions",
-                "-H",
-                f"Authorization: Bearer {api_key}",
-                "-H",
-                "Content-Type: application/json",
-                "-d",
-                payload_str,
-            ],
-            capture_output=True,
-            text=True,
-        )
-
-        raw = (proc.stdout or "").strip()
-        if proc.returncode != 0:
-            last_error = (proc.stderr or "curl failed").strip()
-            time.sleep(1.5 * (attempt + 1))
-            continue
-
         try:
-            payload = json.loads(raw)
-        except Exception:
-            last_error = f"non-json API response: {raw[:300]}"
+            req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=body_bytes,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                payload = json.loads(resp.read().decode())
+        except Exception as exc:
+            last_error = str(exc)
             time.sleep(1.5 * (attempt + 1))
             continue
 
         if "error" in payload:
             err = payload["error"]
-            msg = err.get("message", str(err))
-            code = err.get("code", "unknown")
-            raise RuntimeError(f"Groq API error ({code}): {msg}")
+            raise RuntimeError(f"Groq API error ({err.get('code','unknown')}): {err.get('message', err)}")
 
         latency = time.time() - t0
         content = payload["choices"][0]["message"]["content"].strip()
@@ -89,16 +77,23 @@ def _extract_api_key(raw_value: str) -> str:
 
 
 def main() -> None:
-    api_key = _extract_api_key(GROQ_API_KEY)
+    parser = argparse.ArgumentParser(description="Compare rule vs LLM country imputation")
+    parser.add_argument("--csv", required=True, help="Path to input CSV with raw_affiliation_string and rule_country columns")
+    parser.add_argument("--groq-api-key", default=None, help="Groq API key (or set GROQ_API_KEY env var)")
+    args = parser.parse_args()
+
+    raw_key = args.groq_api_key or os.environ.get("GROQ_API_KEY", "")
+    api_key = _extract_api_key(raw_key)
     if not api_key:
-        raise SystemExit("Set GROQ_API_KEY inside compare_impute_groq.py (must contain a gsk_... token).")
+        raise SystemExit("Provide Groq API key via --groq-api-key or GROQ_API_KEY env var (must contain gsk_... token).")
 
-    if not CSV_PATH.exists():
-        raise SystemExit(f"CSV not found: {CSV_PATH}")
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        raise SystemExit(f"CSV not found: {csv_path}")
 
-    rows = list(csv.DictReader(CSV_PATH.open(encoding="utf-8")))
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
     if not rows:
-        raise SystemExit(f"CSV has no rows: {CSV_PATH}")
+        raise SystemExit(f"CSV has no rows: {csv_path}")
 
     total_latency = 0.0
     agreement_count = 0
@@ -112,7 +107,7 @@ def main() -> None:
             agreement_count += 1
         total_latency += latency
 
-    with CSV_PATH.open("w", newline="", encoding="utf-8") as file_obj:
+    with csv_path.open("w", newline="", encoding="utf-8") as file_obj:
         writer = csv.DictWriter(file_obj, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
@@ -122,7 +117,7 @@ def main() -> None:
     print("agreement_rate:", round(agreement_count / len(rows), 3))
     print("llm_avg_seconds:", round(total_latency / len(rows), 3))
     print("llm_total_seconds:", round(total_latency, 3))
-    print("updated_csv:", CSV_PATH)
+    print("updated_csv:", csv_path)
 
 
 if __name__ == "__main__":

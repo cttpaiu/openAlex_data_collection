@@ -83,6 +83,22 @@ def parse_anchor_entries(entries: list[str]) -> tuple[list[AnchorEntry], list[st
     return parsed, invalid
 
 
+async def _check_title_anchor(client: AsyncOpenAlexClient, api_filter: str, entry: AnchorEntry) -> bool:
+    """Query OpenAlex for a specific title anchor using title.search — O(1) per anchor."""
+    words = entry.normalized.split()
+    search_phrase = " ".join(words[:10])
+    title_filter = f"{api_filter},title.search:{search_phrase}"
+    data = await client.fetch_page(
+        title_filter, cursor="*", extra_params={"select": "id,title", "per_page": "10"}
+    )
+    if not data:
+        return False
+    for paper in data.get("results", []):
+        if normalize_title(paper.get("title") or "") == entry.normalized:
+            return True
+    return False
+
+
 async def check_anchor_coverage(cfg: Any, api_filter: str, anchors: list[AnchorEntry]) -> AnchorCheckResult:
     found: list[AnchorEntry] = []
     missing: list[AnchorEntry] = []
@@ -109,10 +125,7 @@ async def check_anchor_coverage(cfg: Any, api_filter: str, anchors: list[AnchorE
     for entry in doi_anchors:
         (found if entry.normalized in found_dois else missing).append(entry)
 
-    found_titles: set[str] = set()
-    pending_titles: set[str] = {a.normalized for a in title_anchors}
-
-    if pending_titles:
+    if title_anchors:
         async with AsyncOpenAlexClient(
             api_key=cfg.api_key,
             email=cfg.email,
@@ -121,31 +134,11 @@ async def check_anchor_coverage(cfg: Any, api_filter: str, anchors: list[AnchorE
             retry_delay=cfg.retry_delay,
             concurrent_requests=cfg.concurrent_requests,
         ) as client:
-            cursor = "*"
-            while cursor and pending_titles:
-                data = await client.fetch_page(
-                    api_filter,
-                    cursor,
-                    extra_params={"select": "id,doi,title"},
-                )
-                if not data:
-                    break
-                batch = data.get("results", [])
-                if not batch:
-                    break
-
-                for paper in batch:
-                    title_key = normalize_title(paper.get("title") or "")
-                    if title_key in pending_titles:
-                        found_titles.add(title_key)
-                        pending_titles.remove(title_key)
-                        if not pending_titles:
-                            break
-
-                cursor = data.get("meta", {}).get("next_cursor")
-
-    for entry in title_anchors:
-        (found if entry.normalized in found_titles else missing).append(entry)
+            hits = await asyncio.gather(
+                *(_check_title_anchor(client, api_filter, entry) for entry in title_anchors)
+            )
+        for entry, hit in zip(title_anchors, hits):
+            (found if hit else missing).append(entry)
 
     return AnchorCheckResult(found=found, missing=missing, invalid=[])
 
