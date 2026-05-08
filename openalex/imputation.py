@@ -1,9 +1,17 @@
-"""Country imputation helpers for affiliation strings."""
+"""Country imputation helpers for affiliation strings.
+
+Also hosts dataclasses for structured LLM responses (Stage 1: institution
+imputation, Stage 3: country imputation) and the embedding-based
+``InstitutionMatcher`` used to dedup against existing OpenAlex institution
+records before creating any synthetic entries.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -100,3 +108,147 @@ def infer_country_from_affiliation(raw_affiliation: str) -> CountryInference:
     if len(matched_codes) > 1:
         return CountryInference(country_code=None, status="ambiguous", matched_terms=tuple(matched_terms))
     return CountryInference(country_code=None, status="none", matched_terms=())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Structured LLM response dataclasses (Stage 1 + Stage 3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _to_str_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s or None
+
+
+@dataclass
+class InstitutionPrediction:
+    """Stage 1: LLM extraction of institution + country from raw affiliation."""
+
+    row_id: int
+    institution_name: str | None
+    country_code: str | None
+    confidence: float
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "InstitutionPrediction":
+        cc = _to_str_or_none(d.get("country_code"))
+        return cls(
+            row_id=int(d.get("row_id", 0)),
+            institution_name=_to_str_or_none(d.get("institution_name")),
+            country_code=cc.upper() if cc else None,
+            confidence=float(d.get("confidence") or 0.0),
+        )
+
+
+@dataclass
+class CountryPrediction:
+    """Stage 3: LLM inference of country from raw affiliation only."""
+
+    row_id: int
+    country_code: str | None
+    status: str
+    confidence: float
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "CountryPrediction":
+        cc = _to_str_or_none(d.get("country_code"))
+        return cls(
+            row_id=int(d.get("row_id", 0)),
+            country_code=cc.upper() if cc else None,
+            status=(_to_str_or_none(d.get("status")) or "none").lower(),
+            confidence=float(d.get("confidence") or 0.0),
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Embedding-based institution matcher (Stage 1 dedup)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class InstitutionRecord:
+    id: str
+    display_name: str
+    country_code: str | None
+
+
+@dataclass(frozen=True)
+class InstitutionMatch:
+    institution_id: str
+    display_name: str
+    country_code: str | None
+    score: float
+
+
+def synthetic_institution_id(name: str) -> str:
+    """Stable synthetic ID for institutions we create from raw affiliations.
+
+    SHA1 over normalized name → first 10 hex chars, prefixed ``IMP_``.
+    Idempotent: same name always yields same ID, so re-runs don't duplicate.
+    """
+    norm = re.sub(r"\s+", " ", (name or "").strip().lower())
+    digest = hashlib.sha1(norm.encode("utf-8")).hexdigest()[:10]
+    return f"IMP_{digest}"
+
+
+class InstitutionMatcher:
+    """Embedding-based fuzzy matcher.
+
+    Loads sentence-transformers lazily (heavy import) so CLI commands that
+    don't need imputation start fast.
+    """
+
+    DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+    def __init__(self, model_name: str = DEFAULT_MODEL):
+        self.model_name = model_name
+        self._model = None
+        self.records: list[InstitutionRecord] = []
+        self._embeddings = None
+
+    def _load_model(self):
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer  # heavy
+            self._model = SentenceTransformer(self.model_name)
+        return self._model
+
+    def index(self, records: list[InstitutionRecord]) -> None:
+        self.records = records
+        if not records:
+            self._embeddings = None
+            return
+        model = self._load_model()
+        names = [r.display_name for r in records]
+        self._embeddings = model.encode(
+            names, convert_to_tensor=True, show_progress_bar=False, normalize_embeddings=True
+        )
+
+    def find_match(self, query: str, threshold: float = 0.78) -> InstitutionMatch | None:
+        candidates = self.top_k(query, k=1)
+        if not candidates:
+            return None
+        best = candidates[0]
+        return best if best.score >= threshold else None
+
+    def top_k(self, query: str, k: int = 3) -> list[InstitutionMatch]:
+        if not self.records or self._embeddings is None or not query:
+            return []
+        from sentence_transformers import util  # heavy
+        model = self._load_model()
+        query_emb = model.encode(
+            [query], convert_to_tensor=True, show_progress_bar=False, normalize_embeddings=True
+        )
+        scores = util.cos_sim(query_emb, self._embeddings)[0]
+        k = min(k, len(self.records))
+        topk = scores.topk(k)
+        return [
+            InstitutionMatch(
+                institution_id=self.records[int(i)].id,
+                display_name=self.records[int(i)].display_name,
+                country_code=self.records[int(i)].country_code,
+                score=float(scores[int(i)]),
+            )
+            for i in topk.indices.tolist()
+        ]
