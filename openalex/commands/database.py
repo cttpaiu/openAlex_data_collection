@@ -11,6 +11,8 @@ import click
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
+from openalex.imputation import normalize_country_code
+
 console = Console()
 
 
@@ -96,9 +98,16 @@ class OpenAlexLoader:
         self.con.execute("""
             CREATE TABLE IF NOT EXISTS institutions (
                 id VARCHAR PRIMARY KEY, display_name VARCHAR,
-                country_code VARCHAR, type VARCHAR, ror_id VARCHAR
+                country_code VARCHAR, type VARCHAR, ror_id VARCHAR,
+                is_synthetic BOOLEAN DEFAULT FALSE
             )
         """)
+        try:
+            self.con.execute(
+                "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS is_synthetic BOOLEAN DEFAULT FALSE"
+            )
+        except Exception:
+            pass
         self.con.execute("""
             CREATE TABLE IF NOT EXISTS countries (
                 id INTEGER PRIMARY KEY, country_name VARCHAR, country_code VARCHAR UNIQUE, status INTEGER
@@ -142,19 +151,21 @@ class OpenAlexLoader:
             return None
         return url.split("/")[-1] if "/" in url else url
 
-    def _ensure_country(self, code: str) -> None:
-        if not code or code in self.country_cache:
-            return
+    def _ensure_country(self, code: str | None) -> str | None:
+        norm = normalize_country_code(code)
+        if not norm or norm in self.country_cache:
+            return norm
         try:
             max_id = self.con.execute("SELECT COALESCE(MAX(id), 0) FROM countries").fetchone()[0]
             self.con.execute(
                 "INSERT INTO countries (id, country_name, country_code, status) VALUES (?, ?, ?, 1) ON CONFLICT DO NOTHING",
-                [max_id + 1, f"[{code}]", code],
+                [max_id + 1, f"[{norm}]", norm],
             )
-            self.country_cache.add(code)
+            self.country_cache.add(norm)
             self.stats["countries_added"] += 1
         except Exception:
             pass
+        return norm
 
     def _insert_author(self, data: Dict) -> None:
         aid = self._extract_id(data.get("id"))
@@ -174,12 +185,12 @@ class OpenAlexLoader:
         iid = self._extract_id(data.get("id"))
         if not iid or iid in self.institution_cache:
             return
-        cc = data.get("country_code")
+        cc = normalize_country_code(data.get("country_code"))
         if cc:
             self._ensure_country(cc)
         try:
             self.con.execute(
-                "INSERT INTO institutions (id, display_name, country_code, type, ror_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                "INSERT INTO institutions (id, display_name, country_code, type, ror_id, is_synthetic) VALUES (?, ?, ?, ?, ?, FALSE) ON CONFLICT DO NOTHING",
                 [iid, data.get("display_name") or "Unknown", cc, data.get("type"), data.get("ror")],
             )
             self.institution_cache.add(iid)
@@ -272,7 +283,7 @@ class OpenAlexLoader:
                         if not inst_id:
                             continue
                         self._insert_institution(inst_data)
-                        ic = inst_data.get("country_code")
+                        ic = normalize_country_code(inst_data.get("country_code"))
                         if ic:
                             self._ensure_country(ic)
                         raw_aff = raw_affs[idx] if idx < len(raw_affs) else None
@@ -287,7 +298,7 @@ class OpenAlexLoader:
                         self.stats["contributions"] += 1
                 else:
                     countries = authorship.get("countries", [])
-                    ac = countries[0] if countries else None
+                    ac = normalize_country_code(countries[0] if countries else None)
                     raw_aff = self._first_nonempty_affiliation(raw_affs)
                     if ac:
                         self._ensure_country(ac)

@@ -106,15 +106,35 @@ def _print_health_report(con, db_path: str) -> None:
     table.add_row("Tier 2 — Partial metadata", f"{tier2:,}", pct(tier2))
     table.add_row("[dim]Tier 3 — Ghost (no location)[/dim]", f"{tier3:,}", pct(tier3))
 
-    # Country imputation readiness
+    # Stage 1 readiness: contributions missing institution_id
+    missing_inst = _q(con, "SELECT COUNT(*) FROM contributions WHERE institution_id IS NULL")
+    inst_imputable = _q(con, """
+        SELECT COUNT(*) FROM contributions
+        WHERE institution_id IS NULL
+          AND raw_affiliation_string IS NOT NULL
+          AND TRIM(raw_affiliation_string) != ''
+    """)
+
+    # Stage 2 readiness: institutions missing country_code
+    inst_missing_country = _q(con, "SELECT COUNT(*) FROM institutions WHERE country_code IS NULL")
+    inst_country_imputable = _q(con, """
+        SELECT COUNT(DISTINCT i.id)
+        FROM institutions i
+        JOIN contributions c ON c.institution_id = i.id
+        WHERE i.country_code IS NULL
+          AND c.raw_affiliation_string IS NOT NULL
+          AND TRIM(c.raw_affiliation_string) != ''
+    """)
+
+    # Stage 3 readiness: contributions missing country_code
     missing_country = _q(con, "SELECT COUNT(*) FROM contributions WHERE country_code IS NULL")
-    imputable = _q(con, """
+    country_imputable = _q(con, """
         SELECT COUNT(*) FROM contributions
         WHERE country_code IS NULL
           AND raw_affiliation_string IS NOT NULL
           AND TRIM(raw_affiliation_string) != ''
     """)
-    dead = _q(con, """
+    country_dead = _q(con, """
         SELECT COUNT(*) FROM contributions
         WHERE country_code IS NULL
           AND (raw_affiliation_string IS NULL OR TRIM(raw_affiliation_string) = '')
@@ -130,16 +150,23 @@ def _print_health_report(con, db_path: str) -> None:
         return f"{n / d * 100:.1f}%" if d else "-"
 
     table.add_section()
-    table.add_row("Contributions missing country_code", f"{missing_country:,}", "")
-    table.add_row("  → have raw_affiliation (imputable)", f"{imputable:,}", pct_of(imputable, missing_country))
-    table.add_row("  → no raw_affiliation (dead end)", f"{dead:,}", pct_of(dead, missing_country))
+    table.add_row("[bold]Stage 1[/bold] — Contributions missing institution_id", f"{missing_inst:,}", "")
+    table.add_row("  → have raw_affiliation (imputable)", f"{inst_imputable:,}", pct_of(inst_imputable, missing_inst))
+    table.add_section()
+    table.add_row("[bold]Stage 2[/bold] — Institutions missing country_code", f"{inst_missing_country:,}", "")
+    table.add_row("  → have raw_aff via contributions", f"{inst_country_imputable:,}", pct_of(inst_country_imputable, inst_missing_country))
+    table.add_section()
+    table.add_row("[bold]Stage 3[/bold] — Contributions missing country_code", f"{missing_country:,}", "")
+    table.add_row("  → have raw_affiliation (imputable)", f"{country_imputable:,}", pct_of(country_imputable, missing_country))
+    table.add_row("  → no raw_affiliation (dead end)", f"{country_dead:,}", pct_of(country_dead, missing_country))
     table.add_row("Distinct papers imputable", f"{imputable_papers:,}", "")
 
     console.print(table)
 
-    if imputable > 0:
+    total_imputable = inst_imputable + inst_country_imputable + country_imputable
+    if total_imputable > 0:
         console.print(
-            f"\n[bold yellow]→ {imputable:,} rows can be imputed.[/bold yellow] "
+            f"\n[bold yellow]→ {total_imputable:,} rows imputable across all stages.[/bold yellow] "
             "Run: [cyan]uv run openalex impute-country --dry-run[/cyan]"
         )
 
