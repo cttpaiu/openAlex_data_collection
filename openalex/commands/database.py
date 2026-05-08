@@ -270,9 +270,8 @@ class OpenAlexLoader:
             for authorship in record.get("authorships", []):
                 author_data = authorship.get("author") or {}
                 author_id = self._extract_id(author_data.get("id"))
-                if not author_id:
-                    continue
-                self._insert_author(author_data)
+                if author_id:
+                    self._insert_author(author_data)
 
                 insts = authorship.get("institutions", [])
                 raw_affs = authorship.get("raw_affiliation_strings", [])
