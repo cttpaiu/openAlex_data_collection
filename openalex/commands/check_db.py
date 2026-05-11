@@ -119,12 +119,37 @@ def _add_paper_coverage_rows(con, table, total: int, pct) -> None:
             WHERE c2.paper_id = c.paper_id AND c2.institution_id IS NOT NULL
         )
     """)
+    rows_imputable = _q(con, """
+        SELECT COUNT(*) FROM contributions c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c2
+            WHERE c2.paper_id = c.paper_id AND c2.institution_id IS NOT NULL
+        )
+        AND c.raw_affiliation_string IS NOT NULL
+        AND TRIM(c.raw_affiliation_string) != ''
+    """)
+    papers_imputable = _q(con, """
+        SELECT COUNT(DISTINCT c.paper_id) FROM contributions c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c2
+            WHERE c2.paper_id = c.paper_id AND c2.institution_id IS NOT NULL
+        )
+        AND c.raw_affiliation_string IS NOT NULL
+        AND TRIM(c.raw_affiliation_string) != ''
+    """)
+    rows_dead = contribs_for_zero - rows_imputable
+
+    def pct_of(n, d):
+        return f"{n / d * 100:.1f}%" if d else "-"
 
     table.add_section()
     table.add_row("[bold]Papers with zero institution connection[/bold]", f"{zero_total:,}", pct(zero_total))
     table.add_row("  → orphan (no contribution rows)", f"{orphan:,}", pct(orphan))
     table.add_row("  → all contributions missing institution_id", f"{all_null:,}", pct(all_null))
     table.add_row("  → contribution rows for those papers (expanded)", f"{contribs_for_zero:,}", "")
+    table.add_row("     · rows with raw_affiliation (imputable)", f"{rows_imputable:,}", pct_of(rows_imputable, contribs_for_zero))
+    table.add_row("     · rows without raw_affiliation (dead end)", f"{rows_dead:,}", pct_of(rows_dead, contribs_for_zero))
+    table.add_row("  → papers with ≥1 imputable row", f"{papers_imputable:,}", pct_of(papers_imputable, zero_total))
 
     buckets = _partial_coverage_buckets(con)
     partial_total = sum(buckets.values())
