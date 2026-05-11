@@ -20,6 +20,7 @@ DATA_DIR = Path("data")
 DEFAULT_CONFIG: dict[str, Any] = {
     "api": {
         "key": "YOUR_API_KEY_HERE",
+        "groq_key": "YOUR_GROQ_KEY_HERE",
         "email": "your@email.com",
         "base_url": "https://api.openalex.org/works",
     },
@@ -37,6 +38,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "concurrent_requests": 10,
         "max_retries": 5,
         "retry_delay": 2,
+    },
+    "llm": {
+        "provider": "groq",
+        "model": "llama-3.1-8b-instant",
+        "base_url": "http://localhost:11434",
     },
     "output": {
         "jsonl_dir": "data/raw/",
@@ -104,6 +110,7 @@ DEFAULT_ANCHORS_HEADER = """\
 @dataclass
 class AppConfig:
     api_key: str
+    groq_api_key: str
     email: str
     base_url: str
     date_from: str
@@ -117,6 +124,9 @@ class AppConfig:
     concurrent_requests: int
     max_retries: int
     retry_delay: int
+    llm_provider: str
+    llm_model: str
+    llm_base_url: str
     jsonl_dir: str
     db_dir: str
 
@@ -189,10 +199,12 @@ def load_config(config_path: str = "config/collection.yml") -> AppConfig:
     api = raw.get("api", {})
     filters = raw.get("filters", {})
     coll = raw.get("collection", {})
+    llm = raw.get("llm", {})
     out = raw.get("output", {})
 
     return AppConfig(
         api_key=api.get("key", ""),
+        groq_api_key=api.get("groq_key", ""),
         email=api.get("email", ""),
         base_url=api.get("base_url", "https://api.openalex.org/works"),
         date_from=filters.get("date_from", "2003-01-01"),
@@ -206,6 +218,9 @@ def load_config(config_path: str = "config/collection.yml") -> AppConfig:
         concurrent_requests=coll.get("concurrent_requests", 10),
         max_retries=coll.get("max_retries", 5),
         retry_delay=coll.get("retry_delay", 2),
+        llm_provider=str(llm.get("provider", "groq")).strip().lower(),
+        llm_model=str(llm.get("model", "llama-3.1-8b-instant")).strip(),
+        llm_base_url=str(llm.get("base_url", "http://localhost:11434")).strip(),
         jsonl_dir=out.get("jsonl_dir", "data/raw/"),
         db_dir=out.get("db_dir", "data/db/"),
     )

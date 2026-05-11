@@ -63,7 +63,9 @@ uv run openalex download             # download all → JSONL (~820 MB)
 uv run openalex convert-to-db        # JSONL → DuckDB
 uv run openalex check-db             # completeness health report
 uv run openalex impute-country --dry-run   # preview country imputation from affiliations
-uv run openalex impute-country --llm-fallback --llm-batch-size 20   # rule + batched Groq fallback
+uv run openalex impute-country --llm-fallback --llm-batch-size 20   # rule + batched LLM fallback
+# optional provider override (otherwise read from config/collection.yml -> llm.*)
+uv run openalex impute-country --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
 ```
 
 ## Commands
@@ -89,7 +91,7 @@ All config lives in the `config/` directory, created by `openalex init`:
 
 | File | Purpose |
 |---|---|
-| `config/collection.yml` | API key, date range, batch sizes, output paths |
+| `config/collection.yml` | API key, date range, batch sizes, LLM provider/model (`llm.*`), output paths |
 | `config/keywords.txt` | Boolean search query (full-text search on titles + abstracts) |
 | `config/topics.txt` | OpenAlex topic IDs, one per line (format: `T10020`) |
 | `config/anchor.txt` | Must-find papers (one DOI or full title per line) |

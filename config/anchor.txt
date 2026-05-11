@@ -1,0 +1,6 @@
+# One anchor paper per line: either DOI or full title.
+# These are must-find papers that should appear in your search result set.
+# Examples:
+# 10.1038/nphys1170
+# https://doi.org/10.1038/nature23474
+# Quantum supremacy using a programmable superconducting processor
