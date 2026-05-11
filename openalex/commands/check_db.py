@@ -106,6 +106,8 @@ def _print_health_report(con, db_path: str) -> None:
     table.add_row("Tier 2 — Partial metadata", f"{tier2:,}", pct(tier2))
     table.add_row("[dim]Tier 3 — Ghost (no location)[/dim]", f"{tier3:,}", pct(tier3))
 
+    _add_paper_coverage_rows(con, table, total, pct)
+
     # Stage 1 readiness: contributions missing institution_id
     missing_inst = _q(con, "SELECT COUNT(*) FROM contributions WHERE institution_id IS NULL")
     inst_imputable = _q(con, """
@@ -184,3 +186,24 @@ def _print_health_report(con, db_path: str) -> None:
                 console.print(f"  [cyan]{name[:60]}[/cyan]  [green]{n:,}[/green]")
     except Exception:
         pass
+
+
+def _add_paper_coverage_rows(con, table, total: int, pct) -> None:
+    orphan = _q(con, """
+        SELECT COUNT(*) FROM papers p
+        WHERE NOT EXISTS (SELECT 1 FROM contributions c WHERE c.paper_id = p.id)
+    """)
+    all_null = _q(con, """
+        SELECT COUNT(*) FROM papers p
+        WHERE EXISTS (SELECT 1 FROM contributions c WHERE c.paper_id = p.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM contributions c
+              WHERE c.paper_id = p.id AND c.institution_id IS NOT NULL
+          )
+    """)
+    zero_total = orphan + all_null
+
+    table.add_section()
+    table.add_row("[bold]Papers with zero institution connection[/bold]", f"{zero_total:,}", pct(zero_total))
+    table.add_row("  → orphan (no contribution rows)", f"{orphan:,}", pct(orphan))
+    table.add_row("  → all contributions missing institution_id", f"{all_null:,}", pct(all_null))
