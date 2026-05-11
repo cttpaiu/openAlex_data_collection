@@ -215,3 +215,34 @@ def _add_paper_coverage_rows(con, table, total: int, pct) -> None:
     table.add_row("  → orphan (no contribution rows)", f"{orphan:,}", pct(orphan))
     table.add_row("  → all contributions missing institution_id", f"{all_null:,}", pct(all_null))
     table.add_row("  → contribution rows for those papers (expanded)", f"{contribs_for_zero:,}", "")
+
+    buckets = _partial_coverage_buckets(con)
+    partial_total = sum(buckets.values())
+    table.add_row("[bold]Papers with partial institution coverage[/bold]", f"{partial_total:,}", pct(partial_total))
+    for k in (1, 2, 3, 4, 5):
+        label = "5+ missing" if k == 5 else f"{k} missing"
+        table.add_row(f"  → {label}", f"{buckets.get(k, 0):,}", "")
+
+
+def _partial_coverage_buckets(con) -> dict[int, int]:
+    """Return {bucket: paper_count} where bucket 5 collapses 5+ missing."""
+    try:
+        rows = con.execute("""
+            WITH paper_stats AS (
+                SELECT paper_id,
+                    SUM(CASE WHEN institution_id IS NULL THEN 1 ELSE 0 END) AS missing,
+                    SUM(CASE WHEN institution_id IS NOT NULL THEN 1 ELSE 0 END) AS filled
+                FROM contributions
+                GROUP BY paper_id
+            )
+            SELECT
+                CASE WHEN missing >= 5 THEN 5 ELSE missing END AS bucket,
+                COUNT(*) AS papers
+            FROM paper_stats
+            WHERE missing > 0 AND filled > 0
+            GROUP BY bucket
+            ORDER BY bucket
+        """).fetchall()
+        return {int(b): int(n) for b, n in rows}
+    except Exception:
+        return {}
