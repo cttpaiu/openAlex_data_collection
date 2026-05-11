@@ -61,29 +61,6 @@ def _print_health_report(con, db_path: str) -> None:
         SELECT COUNT(DISTINCT paper_id) FROM contributions WHERE country_code IS NOT NULL
     """)
 
-    # Tier classification
-    tier_sql = """
-        SELECT
-            SUM(CASE WHEN has_country AND has_inst THEN 1 ELSE 0 END),
-            SUM(CASE WHEN (has_country OR has_inst) AND NOT (has_country AND has_inst) THEN 1 ELSE 0 END),
-            SUM(CASE WHEN NOT has_country AND NOT has_inst THEN 1 ELSE 0 END)
-        FROM (
-            SELECT p.id,
-                MAX(c.country_code IS NOT NULL)::BOOLEAN as has_country,
-                MAX(c.institution_id IS NOT NULL)::BOOLEAN as has_inst
-            FROM papers p
-            LEFT JOIN contributions c ON p.id = c.paper_id
-            GROUP BY p.id
-        ) sub
-    """
-    try:
-        tier_row = con.execute(tier_sql).fetchone()
-        tier1 = tier_row[0] or 0
-        tier2 = tier_row[1] or 0
-        tier3 = tier_row[2] or 0
-    except Exception:
-        tier1 = tier2 = tier3 = 0
-
     def pct(n):
         return f"{n / total * 100:.1f}%" if total else "-"
 
@@ -101,10 +78,6 @@ def _print_health_report(con, db_path: str) -> None:
     table.add_section()
     table.add_row("Papers with abstracts", f"{with_abstract:,}", pct(with_abstract))
     table.add_row("Papers with country info", f"{with_country:,}", pct(with_country))
-    table.add_section()
-    table.add_row("[bold]Tier 1[/bold] — Complete metadata", f"{tier1:,}", pct(tier1))
-    table.add_row("Tier 2 — Partial metadata", f"{tier2:,}", pct(tier2))
-    table.add_row("[dim]Tier 3 — Ghost (no location)[/dim]", f"{tier3:,}", pct(tier3))
 
     _add_paper_coverage_rows(con, table, total, pct)
 
