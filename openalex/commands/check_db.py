@@ -202,8 +202,16 @@ def _add_paper_coverage_rows(con, table, total: int, pct) -> None:
           )
     """)
     zero_total = orphan + all_null
+    contribs_for_zero = _q(con, """
+        SELECT COUNT(*) FROM contributions c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c2
+            WHERE c2.paper_id = c.paper_id AND c2.institution_id IS NOT NULL
+        )
+    """)
 
     table.add_section()
     table.add_row("[bold]Papers with zero institution connection[/bold]", f"{zero_total:,}", pct(zero_total))
     table.add_row("  → orphan (no contribution rows)", f"{orphan:,}", pct(orphan))
     table.add_row("  → all contributions missing institution_id", f"{all_null:,}", pct(all_null))
+    table.add_row("  → contribution rows for those papers (expanded)", f"{contribs_for_zero:,}", "")
