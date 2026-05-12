@@ -30,6 +30,7 @@ net for databases produced before that move.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -94,6 +95,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 @click.option("--llm-model", default=None, help="LLM model name (defaults to config llm.model)")
 @click.option("--llm-base-url", default=None, help="Base URL for local provider (e.g. Ollama)")
 @click.option("--llm-batch-size", type=int, default=20, show_default=True)
+@click.option("--llm-concurrency", type=int, default=2, show_default=True)
 @click.option("--llm-min-confidence", type=float, default=0.8, show_default=True)
 @click.option("--llm-max-tokens-stage1", type=int, default=600, show_default=True)
 @click.option("--llm-max-tokens-stage2", type=int, default=400, show_default=True)
@@ -114,6 +116,7 @@ def impute_affiliation_command(
     llm_model: str | None,
     llm_base_url: str | None,
     llm_batch_size: int,
+    llm_concurrency: int,
     llm_min_confidence: float,
     llm_max_tokens_stage1: int,
     llm_max_tokens_stage2: int,
@@ -151,6 +154,8 @@ def impute_affiliation_command(
     if "1" in requested and not llm_fallback:
         console.print("[yellow]⚠ Stage 1 requires --llm-fallback. Skipping Stage 1.[/yellow]")
         requested.discard("1")
+    if llm_concurrency < 1:
+        raise SystemExit("--llm-concurrency must be >= 1")
 
     import duckdb
 
@@ -162,19 +167,19 @@ def impute_affiliation_command(
         if "1" in requested:
             results["stage_1"] = _run_stage_1(
                 con, dry_run, limit, provider, base_url, api_key, model,
-                llm_batch_size, llm_min_confidence, match_threshold, llm_max_tokens_stage1,
+                llm_batch_size, llm_concurrency, llm_min_confidence, match_threshold, llm_max_tokens_stage1,
             )
         if "2" in requested:
             results["stage_2"] = _run_stage_2(
                 con, dry_run, limit,
                 provider, base_url, api_key if llm_fallback else "",
-                model, llm_batch_size, llm_min_confidence, llm_max_tokens_stage2, llm_fallback,
+                model, llm_batch_size, llm_concurrency, llm_min_confidence, llm_max_tokens_stage2, llm_fallback,
             )
         if "3" in requested:
             results["stage_3"] = _run_stage_3(
                 con, dry_run, limit,
                 provider, base_url, api_key if llm_fallback else "",
-                model, llm_batch_size, llm_min_confidence, llm_max_tokens_stage3, llm_fallback,
+                model, llm_batch_size, llm_concurrency, llm_min_confidence, llm_max_tokens_stage3, llm_fallback,
             )
 
         hk_fix = 0
@@ -213,6 +218,37 @@ def _batched(items, batch_size: int):
     step = max(1, batch_size)
     for i in range(0, len(items), step):
         yield items[i:i + step]
+
+
+def _run_batches_concurrently(
+    batches: list[list[Any]],
+    llm_concurrency: int,
+    query_async,
+    on_result,
+) -> None:
+    """Run async LLM batch queries with bounded concurrency and completion-order callbacks."""
+    concurrency = max(1, llm_concurrency)
+
+    async def _runner() -> None:
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _run_one(batch_no: int, chunk: list[Any]):
+            async with sem:
+                try:
+                    predictions = await query_async(batch_no, chunk)
+                    return batch_no, chunk, predictions, None
+                except Exception as exc:
+                    return batch_no, chunk, [], str(exc)
+
+        tasks = [
+            asyncio.create_task(_run_one(batch_no, chunk))
+            for batch_no, chunk in enumerate(batches, start=1)
+        ]
+        for fut in asyncio.as_completed(tasks):
+            batch_no, chunk, predictions, failed = await fut
+            on_result(batch_no, chunk, predictions, failed)
+
+    asyncio.run(_runner())
 
 
 class _StageProgress:
@@ -308,6 +344,41 @@ def _langchain_structured_call(
         raise RuntimeError(f"Unsupported LLM provider: {provider}")
 
     return llm.with_structured_output(schema).invoke(prompt)
+
+
+async def _langchain_structured_call_async(
+    provider: str,
+    model: str,
+    base_url: str,
+    api_key: str,
+    prompt: str,
+    schema,
+    max_tokens: int,
+):
+    """Async variant of `_langchain_structured_call` for concurrent batch inference."""
+    if provider == "ollama":
+        from langchain_ollama import ChatOllama
+
+        llm = ChatOllama(
+            model=model,
+            base_url=base_url,
+            temperature=0,
+            num_predict=max_tokens,
+            format="json",
+        )
+    elif provider == "groq":
+        from langchain_groq import ChatGroq
+
+        llm = ChatGroq(
+            model=model,
+            api_key=api_key,
+            temperature=0,
+            max_tokens=max_tokens,
+        )
+    else:
+        raise RuntimeError(f"Unsupported LLM provider: {provider}")
+
+    return await llm.with_structured_output(schema).ainvoke(prompt)
 
 
 def _ensure_audit_table(con) -> None:
@@ -444,6 +515,36 @@ def _query_stage1_batch(
     return [InstitutionPrediction.from_pydantic(item) for item in response.predictions]
 
 
+async def _query_stage1_batch_async(
+    provider: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    batch_rows: list[dict[str, Any]],
+    max_tokens: int,
+) -> list[InstitutionPrediction]:
+    prompt = (
+        "Task: from each affiliation string, extract the primary institution name "
+        "(university, research institute, lab, or company) and its ISO-3166-1 alpha-2 country code.\n"
+        "Rules:\n"
+        "1) Keep row_id exactly as input.\n"
+        "2) institution_name should be the most specific identifiable organisation, "
+        "without departments or addresses (e.g. 'University of Oxford' not 'Dept of Physics, Univ of Oxford').\n"
+        "3) Use null when uncertain.\n"
+        f"Input:\n{json.dumps(batch_rows, ensure_ascii=False)}"
+    )
+    response = await _langchain_structured_call_async(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        prompt=prompt,
+        schema=InstitutionPredictionResponse,
+        max_tokens=max_tokens,
+    )
+    return [InstitutionPrediction.from_pydantic(item) for item in response.predictions]
+
+
 def _flush_stage1_batch(
     con,
     batch_synth_inserts: list[dict[str, Any]],
@@ -475,6 +576,54 @@ def _flush_stage1_batch(
     con.commit()
 
 
+def _flush_stage2_batch(
+    con,
+    batch_updates: list[dict[str, Any]],
+    stats: dict[str, Any],
+) -> None:
+    """Write one Stage 2 batch (institution country + contribution cascade + audit) and commit."""
+    if not batch_updates:
+        return
+    for u in batch_updates:
+        cc = _ensure_country(con, u["country_code"])
+        if not cc:
+            continue
+        con.execute(
+            "UPDATE institutions SET country_code = ? WHERE id = ? AND country_code IS NULL",
+            [cc, u["institution_id"]],
+        )
+        cascade = con.execute(
+            """
+            UPDATE contributions SET country_code = ?
+            WHERE institution_id = ? AND country_code IS NULL
+            """,
+            [cc, u["institution_id"]],
+        ).fetchone()
+        if cascade and cascade[0]:
+            stats["cascaded_contributions"] += int(cascade[0])
+    _insert_audit(con, batch_updates, stage="2")
+    con.commit()
+
+
+def _flush_stage3_batch(
+    con,
+    batch_updates: list[dict[str, Any]],
+) -> None:
+    """Write one Stage 3 batch's contribution country updates + audit rows and commit."""
+    if not batch_updates:
+        return
+    for u in batch_updates:
+        cc = _ensure_country(con, u["country_code"])
+        if not cc:
+            continue
+        con.execute(
+            "UPDATE contributions SET country_code = ? WHERE row_id = ? AND country_code IS NULL",
+            [cc, u["row_id"]],
+        )
+    _insert_audit(con, batch_updates, stage="3")
+    con.commit()
+
+
 def _run_stage_1(
     con,
     dry_run: bool,
@@ -484,6 +633,7 @@ def _run_stage_1(
     api_key: str,
     model: str,
     batch_size: int,
+    llm_concurrency: int,
     min_confidence: float,
     match_threshold: float,
     max_tokens: int,
@@ -510,31 +660,23 @@ def _run_stage_1(
     synthetic_inserts: list[dict[str, Any]] = []
     seen_synthetic: set[str] = set()
 
-    total_batches = math.ceil(eligible / max(batch_size, 1))
+    chunks = list(_batched(rows, batch_size))
+    total_batches = len(chunks)
+
     with _StageProgress(f"Stage 1 — institution imputation ({eligible:,} rows)", total_batches) as bar:
-        for batch_no, chunk in enumerate(_batched(rows, batch_size), start=1):
-            request_rows = [
-                {"row_id": r[0], "raw_affiliation_string": r[2]} for r in chunk
-            ]
-            try:
-                predictions = _query_stage1_batch(
-                    provider=provider,
-                    base_url=base_url,
-                    api_key=api_key,
-                    model=model,
-                    batch_rows=request_rows,
-                    max_tokens=max_tokens,
-                )
-            except Exception as exc:
-                bar.log(f"[red]batch {batch_no}/{total_batches} FAILED — {exc}[/red]")
+        def _process_stage1_batch(batch_no, chunk, predictions, failed):
+            if failed is not None:
+                bar.log(f"[red]batch {batch_no}/{total_batches} FAILED — {failed}[/red]")
                 bar.advance()
                 stats["skipped"] += len(chunk)
-                continue
+                return
 
             batch_matched = 0
             batch_synth = 0
             batch_skipped = 0
             batch_lowconf = 0
+            batch_updates: list[dict[str, Any]] = []
+            batch_synth_inserts: list[dict[str, Any]] = []
             for pred in predictions:
                 row = by_id.get(pred.row_id)
                 if not row:
@@ -565,11 +707,13 @@ def _run_stage_1(
                         matched_term = f"synthetic: {pred.institution_name}"
                         if syn_id not in seen_synthetic:
                             seen_synthetic.add(syn_id)
-                            synthetic_inserts.append({
+                            synth_row = {
                                 "id": syn_id,
                                 "display_name": pred.institution_name,
                                 "country_code": extracted_country,
-                            })
+                            }
+                            synthetic_inserts.append(synth_row)
+                            batch_synth_inserts.append(synth_row)
                         stats["created_synthetic"] += 1
                         batch_synth += 1
                 elif extracted_country:
@@ -582,7 +726,7 @@ def _run_stage_1(
                     batch_skipped += 1
                     continue
 
-                updates.append({
+                batch_updates.append({
                     "row_id": pred.row_id,
                     "paper_id": row["paper_id"],
                     "raw_affiliation_string": row["raw_affiliation_string"],
@@ -593,6 +737,10 @@ def _run_stage_1(
                     "confidence": pred.confidence,
                 })
 
+            updates.extend(batch_updates)
+            if not dry_run and (batch_updates or batch_synth_inserts):
+                _flush_stage1_batch(con, batch_synth_inserts, batch_updates)
+
             bar.log(
                 f"batch {batch_no}/{total_batches} → "
                 f"matched={batch_matched} synth={batch_synth} "
@@ -600,26 +748,33 @@ def _run_stage_1(
             )
             bar.advance()
 
-    if not dry_run:
-        for inst in synthetic_inserts:
-            cc = _ensure_country(con, inst["country_code"]) if inst["country_code"] else None
-            con.execute(
-                "INSERT INTO institutions (id, display_name, country_code, type, ror_id, is_synthetic) "
-                "VALUES (?, ?, ?, NULL, NULL, TRUE) ON CONFLICT DO NOTHING",
-                [inst["id"], inst["display_name"], cc],
-            )
-        for u in updates:
-            cc = _ensure_country(con, u["country_code"]) if u["country_code"] else None
-            con.execute(
-                """
-                UPDATE contributions
-                SET institution_id = COALESCE(institution_id, ?),
-                    country_code = COALESCE(country_code, ?)
-                WHERE row_id = ?
-                """,
-                [u["institution_id"], cc, u["row_id"]],
-            )
-        _insert_audit(con, updates, stage="1")
+        if llm_concurrency > 1:
+            async def _query(batch_no: int, chunk: list[tuple[int, str, str]]):
+                request_rows = [{"row_id": r[0], "raw_affiliation_string": r[2]} for r in chunk]
+                return await _query_stage1_batch_async(
+                    provider=provider,
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    batch_rows=request_rows,
+                    max_tokens=max_tokens,
+                )
+            _run_batches_concurrently(chunks, llm_concurrency, _query, _process_stage1_batch)
+        else:
+            for batch_no, chunk in enumerate(chunks, start=1):
+                request_rows = [{"row_id": r[0], "raw_affiliation_string": r[2]} for r in chunk]
+                try:
+                    predictions = _query_stage1_batch(
+                        provider=provider,
+                        base_url=base_url,
+                        api_key=api_key,
+                        model=model,
+                        batch_rows=request_rows,
+                        max_tokens=max_tokens,
+                    )
+                    _process_stage1_batch(batch_no, chunk, predictions, None)
+                except Exception as exc:
+                    _process_stage1_batch(batch_no, chunk, [], str(exc))
 
     _print_stage_summary("Stage 1 — institution imputation", stats, len(updates), dry_run)
     return {"stats": stats, "updates": updates, "synthetic_inserts": synthetic_inserts}
@@ -678,6 +833,34 @@ def _query_stage2_batch(
     return [CountryPrediction.from_pydantic(item) for item in response.predictions]
 
 
+async def _query_stage2_batch_async(
+    provider: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    batch_rows: list[dict[str, Any]],
+    max_tokens: int,
+) -> list[CountryPrediction]:
+    prompt = (
+        "Task: infer ISO-3166-1 alpha-2 country codes for each institution.\n"
+        "Rules:\n"
+        "1) Use both display_name and sample_affiliation when present.\n"
+        "2) Keep row_id exactly as input.\n"
+        "3) status is one of: unambiguous, ambiguous, none.\n"
+        f"Input:\n{json.dumps(batch_rows, ensure_ascii=False)}"
+    )
+    response = await _langchain_structured_call_async(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        prompt=prompt,
+        schema=CountryPredictionResponse,
+        max_tokens=max_tokens,
+    )
+    return [CountryPrediction.from_pydantic(item) for item in response.predictions]
+
+
 def _run_stage_2(
     con,
     dry_run: bool,
@@ -687,6 +870,7 @@ def _run_stage_2(
     api_key: str,
     model: str,
     batch_size: int,
+    llm_concurrency: int,
     min_confidence: float,
     max_tokens: int,
     llm_enabled: bool,
@@ -706,6 +890,7 @@ def _run_stage_2(
         return {"stats": stats, "updates": []}
 
     updates: list[dict[str, Any]] = []
+    rule_updates: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
 
     with _StageProgress(
@@ -717,7 +902,7 @@ def _run_stage_2(
             text = " | ".join(filter(None, [display_name, sample_aff]))
             inf = infer_country_from_affiliation(text)
             if inf.status == "unambiguous" and inf.country_code:
-                updates.append({
+                rule_row = {
                     "row_id": None,
                     "paper_id": None,
                     "institution_id": inst_id,
@@ -726,7 +911,9 @@ def _run_stage_2(
                     "matched_terms": ", ".join(inf.matched_terms),
                     "source": "rule",
                     "confidence": 1.0,
-                })
+                }
+                updates.append(rule_row)
+                rule_updates.append(rule_row)
                 stats["rule_applied"] += 1
             else:
                 unresolved.append({
@@ -742,23 +929,68 @@ def _run_stage_2(
                 )
             bar.advance()
 
+    if not dry_run and rule_updates:
+        _flush_stage2_batch(con, rule_updates, stats)
+
     if unresolved and llm_enabled:
-        total_batches_s2 = math.ceil(len(unresolved) / max(batch_size, 1))
+        unresolved_chunks = list(_batched(unresolved, batch_size))
+        total_batches_s2 = len(unresolved_chunks)
         with _StageProgress(
             f"Stage 2 LLM pass ({len(unresolved):,} unresolved)",
             total_batches_s2,
         ) as bar:
-            for batch_no, chunk in enumerate(_batched(unresolved, batch_size), start=1):
-                req_rows = [
-                    {
-                        "row_id": r["row_id"],
-                        "display_name": r["display_name"],
-                        "sample_affiliation": r["sample_affiliation"],
+            def _process_stage2_batch(batch_no, chunk, predictions, failed):
+                if failed is not None:
+                    bar.log(f"[red]batch {batch_no}/{total_batches_s2} FAILED — {failed}[/red]")
+                    bar.advance()
+                    return
+                by_id = {r["institution_id"]: r for r in chunk}
+                batch_applied = 0
+                batch_lowconf = 0
+                batch_updates: list[dict[str, Any]] = []
+                for pred in predictions:
+                    rec = by_id.get(pred.row_id)
+                    # status is advisory; accept any prediction that supplied a
+                    # country_code. Small local models (qwen 2b) often omit
+                    # status or stuff "none"/"" in it even when country is good.
+                    if not rec or not pred.country_code:
+                        continue
+                    if pred.confidence < min_confidence:
+                        stats["llm_low_confidence"] += 1
+                        batch_lowconf += 1
+                        continue
+                    update_row = {
+                        "row_id": None,
+                        "paper_id": None,
+                        "institution_id": rec["institution_id"],
+                        "country_code": normalize_country_code(pred.country_code),
+                        "raw_affiliation_string": rec["sample_affiliation"],
+                        "matched_terms": f"llm-inferred (status={pred.status})",
+                        "source": "llm",
+                        "confidence": pred.confidence,
                     }
-                    for r in chunk
-                ]
-                try:
-                    predictions = _query_stage2_batch(
+                    batch_updates.append(update_row)
+                    updates.append(update_row)
+                    stats["llm_applied"] += 1
+                    batch_applied += 1
+                if not dry_run and batch_updates:
+                    _flush_stage2_batch(con, batch_updates, stats)
+                bar.log(
+                    f"batch {batch_no}/{total_batches_s2} → "
+                    f"applied={batch_applied} lowconf={batch_lowconf}"
+                )
+                bar.advance()
+            if llm_concurrency > 1:
+                async def _query(batch_no: int, chunk: list[dict[str, Any]]):
+                    req_rows = [
+                        {
+                            "row_id": r["row_id"],
+                            "display_name": r["display_name"],
+                            "sample_affiliation": r["sample_affiliation"],
+                        }
+                        for r in chunk
+                    ]
+                    return await _query_stage2_batch_async(
                         provider=provider,
                         base_url=base_url,
                         api_key=api_key,
@@ -766,60 +998,31 @@ def _run_stage_2(
                         batch_rows=req_rows,
                         max_tokens=max_tokens,
                     )
-                except Exception as exc:
-                    bar.log(f"[red]batch {batch_no}/{total_batches_s2} FAILED — {exc}[/red]")
-                    bar.advance()
-                    continue
-                by_id = {r["institution_id"]: r for r in chunk}
-                batch_applied = 0
-                batch_lowconf = 0
-                for pred in predictions:
-                    rec = by_id.get(pred.row_id)
-                    if not rec or pred.status != "unambiguous" or not pred.country_code:
-                        continue
-                    if pred.confidence < min_confidence:
-                        stats["llm_low_confidence"] += 1
-                        batch_lowconf += 1
-                        continue
-                    updates.append({
-                        "row_id": None,
-                        "paper_id": None,
-                        "institution_id": rec["institution_id"],
-                        "country_code": normalize_country_code(pred.country_code),
-                        "raw_affiliation_string": rec["sample_affiliation"],
-                        "matched_terms": "llm-inferred from display_name+sample_aff",
-                        "source": "llm",
-                        "confidence": pred.confidence,
-                    })
-                    stats["llm_applied"] += 1
-                    batch_applied += 1
-                bar.log(
-                    f"batch {batch_no}/{total_batches_s2} → "
-                    f"applied={batch_applied} lowconf={batch_lowconf}"
-                )
-                bar.advance()
+                _run_batches_concurrently(unresolved_chunks, llm_concurrency, _query, _process_stage2_batch)
+            else:
+                for batch_no, chunk in enumerate(unresolved_chunks, start=1):
+                    req_rows = [
+                        {
+                            "row_id": r["row_id"],
+                            "display_name": r["display_name"],
+                            "sample_affiliation": r["sample_affiliation"],
+                        }
+                        for r in chunk
+                    ]
+                    try:
+                        predictions = _query_stage2_batch(
+                            provider=provider,
+                            base_url=base_url,
+                            api_key=api_key,
+                            model=model,
+                            batch_rows=req_rows,
+                            max_tokens=max_tokens,
+                        )
+                        _process_stage2_batch(batch_no, chunk, predictions, None)
+                    except Exception as exc:
+                        _process_stage2_batch(batch_no, chunk, [], str(exc))
 
     stats["unresolved"] = eligible - stats["rule_applied"] - stats["llm_applied"]
-
-    if not dry_run and updates:
-        for u in updates:
-            cc = _ensure_country(con, u["country_code"])
-            if not cc:
-                continue
-            con.execute(
-                "UPDATE institutions SET country_code = ? WHERE id = ? AND country_code IS NULL",
-                [cc, u["institution_id"]],
-            )
-            cascade = con.execute(
-                """
-                UPDATE contributions SET country_code = ?
-                WHERE institution_id = ? AND country_code IS NULL
-                """,
-                [cc, u["institution_id"]],
-            ).fetchone()
-            if cascade and cascade[0]:
-                stats["cascaded_contributions"] += int(cascade[0])
-        _insert_audit(con, updates, stage="2")
 
     _print_stage_summary("Stage 2 — institution-country backfill", stats, len(updates), dry_run)
     return {"stats": stats, "updates": updates}
@@ -916,6 +1119,33 @@ def _query_stage3_batch(
     return [CountryPrediction.from_pydantic(item) for item in response.predictions]
 
 
+async def _query_stage3_batch_async(
+    provider: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    batch_rows: list[dict[str, Any]],
+    max_tokens: int,
+) -> list[CountryPrediction]:
+    prompt = (
+        "Task: infer ISO-3166-1 alpha-2 country codes from affiliation strings.\n"
+        "Rules:\n"
+        "1) Keep row_id exactly as input.\n"
+        "2) status is one of: unambiguous, ambiguous, none.\n"
+        f"Input:\n{json.dumps(batch_rows, ensure_ascii=False)}"
+    )
+    response = await _langchain_structured_call_async(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        prompt=prompt,
+        schema=CountryPredictionResponse,
+        max_tokens=max_tokens,
+    )
+    return [CountryPrediction.from_pydantic(item) for item in response.predictions]
+
+
 def _llm_infer_batched(
     unresolved_rows: list[dict[str, Any]],
     provider: str,
@@ -923,49 +1153,42 @@ def _llm_infer_batched(
     api_key: str,
     model: str,
     batch_size: int,
+    llm_concurrency: int,
     min_confidence: float,
     max_tokens: int,
     on_batch=None,
 ):
     """LLM Stage 3 pass with optional per-batch progress callback.
 
-    ``on_batch(batch_no, total_batches, applied, lowconf, none_or_amb, failed_msg)``
+    ``on_batch(batch_no, total_batches, applied, lowconf, none_or_amb, batch_updates, failed_msg)``
     is invoked after each LLM call. ``failed_msg`` is ``None`` on success.
     """
     updates: list[dict[str, Any]] = []
     stats = {"attempted": 0, "applied": 0, "low_confidence": 0, "none_or_ambiguous": 0}
     by_id = {r["row_id"]: r for r in unresolved_rows}
-    total_batches = math.ceil(len(unresolved_rows) / max(batch_size, 1))
+    chunks = list(_batched(unresolved_rows, batch_size))
+    total_batches = len(chunks)
 
-    for batch_no, chunk in enumerate(_batched(unresolved_rows, batch_size), start=1):
-        request_rows = [
-            {"row_id": r["row_id"], "raw_affiliation_string": r["raw_affiliation_string"]}
-            for r in chunk
-        ]
-        try:
-            predictions = _query_stage3_batch(
-                provider=provider,
-                base_url=base_url,
-                api_key=api_key,
-                model=model,
-                batch_rows=request_rows,
-                max_tokens=max_tokens,
-            )
-        except Exception as exc:
+    def _process_stage3_batch(batch_no, chunk, predictions, failed):
+        if failed is not None:
             if on_batch is not None:
-                on_batch(batch_no, total_batches, 0, 0, 0, str(exc))
-            continue
+                on_batch(batch_no, total_batches, 0, 0, 0, [], failed)
+            return
         stats["attempted"] += len(chunk)
 
         batch_applied = 0
         batch_lowconf = 0
         batch_none = 0
+        batch_updates: list[dict[str, Any]] = []
         for pred in predictions:
             rec = by_id.get(pred.row_id)
             if not rec:
                 continue
             code = normalize_country_code(pred.country_code)
-            if not code or pred.status != "unambiguous":
+            # status is advisory; accept any prediction that supplied a code.
+            # qwen 2b frequently omits status or returns "" / "none" while
+            # still emitting a valid country_code.
+            if not code:
                 stats["none_or_ambiguous"] += 1
                 batch_none += 1
                 continue
@@ -973,19 +1196,63 @@ def _llm_infer_batched(
                 stats["low_confidence"] += 1
                 batch_lowconf += 1
                 continue
-            updates.append({
+            update_row = {
                 "row_id": pred.row_id,
                 "paper_id": rec["paper_id"],
                 "raw_affiliation_string": rec["raw_affiliation_string"],
                 "country_code": code,
-                "matched_terms": "llm-inferred",
+                "matched_terms": f"llm-inferred (status={pred.status})",
                 "source": "llm",
                 "confidence": pred.confidence,
-            })
+            }
+            updates.append(update_row)
+            batch_updates.append(update_row)
             stats["applied"] += 1
             batch_applied += 1
         if on_batch is not None:
-            on_batch(batch_no, total_batches, batch_applied, batch_lowconf, batch_none, None)
+            on_batch(
+                batch_no,
+                total_batches,
+                batch_applied,
+                batch_lowconf,
+                batch_none,
+                batch_updates,
+                None,
+            )
+
+    if llm_concurrency > 1:
+        async def _query(batch_no: int, chunk: list[dict[str, Any]]):
+            request_rows = [
+                {"row_id": r["row_id"], "raw_affiliation_string": r["raw_affiliation_string"]}
+                for r in chunk
+            ]
+            return await _query_stage3_batch_async(
+                provider=provider,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                batch_rows=request_rows,
+                max_tokens=max_tokens,
+            )
+        _run_batches_concurrently(chunks, llm_concurrency, _query, _process_stage3_batch)
+    else:
+        for batch_no, chunk in enumerate(chunks, start=1):
+            request_rows = [
+                {"row_id": r["row_id"], "raw_affiliation_string": r["raw_affiliation_string"]}
+                for r in chunk
+            ]
+            try:
+                predictions = _query_stage3_batch(
+                    provider=provider,
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    batch_rows=request_rows,
+                    max_tokens=max_tokens,
+                )
+                _process_stage3_batch(batch_no, chunk, predictions, None)
+            except Exception as exc:
+                _process_stage3_batch(batch_no, chunk, [], str(exc))
     return updates, stats
 
 
@@ -998,6 +1265,7 @@ def _run_stage_3(
     api_key: str,
     model: str,
     batch_size: int,
+    llm_concurrency: int,
     min_confidence: float,
     max_tokens: int,
     llm_enabled: bool,
@@ -1030,6 +1298,8 @@ def _run_stage_3(
         "llm_low_confidence": 0,
         "llm_none_or_ambiguous": 0,
     }
+    if not dry_run and rule_result["updates"]:
+        _flush_stage3_batch(con, rule_result["updates"])
 
     if rule_result["unresolved"] and llm_enabled:
         unresolved_n = len(rule_result["unresolved"])
@@ -1038,7 +1308,7 @@ def _run_stage_3(
             f"Stage 3 LLM pass ({unresolved_n:,} unresolved)",
             total_batches_s3,
         ) as bar:
-            def _on_batch(batch_no, total_batches, applied, lowconf, none_or_amb, failed):
+            def _on_batch(batch_no, total_batches, applied, lowconf, none_or_amb, batch_updates, failed):
                 if failed is not None:
                     bar.log(f"[red]batch {batch_no}/{total_batches} FAILED — {failed}[/red]")
                 else:
@@ -1046,6 +1316,8 @@ def _run_stage_3(
                         f"batch {batch_no}/{total_batches} → "
                         f"applied={applied} lowconf={lowconf} none/amb={none_or_amb}"
                     )
+                    if not dry_run and batch_updates:
+                        _flush_stage3_batch(con, batch_updates)
                 bar.advance()
             llm_updates, llm_stats = _llm_infer_batched(
                 unresolved_rows=rule_result["unresolved"],
@@ -1054,6 +1326,7 @@ def _run_stage_3(
                 api_key=api_key,
                 model=model,
                 batch_size=batch_size,
+                llm_concurrency=llm_concurrency,
                 min_confidence=min_confidence,
                 max_tokens=max_tokens,
                 on_batch=_on_batch,
@@ -1063,17 +1336,6 @@ def _run_stage_3(
         stats["llm_applied"] = llm_stats["applied"]
         stats["llm_low_confidence"] = llm_stats["low_confidence"]
         stats["llm_none_or_ambiguous"] = llm_stats["none_or_ambiguous"]
-
-    if not dry_run and updates:
-        for u in updates:
-            cc = _ensure_country(con, u["country_code"])
-            if not cc:
-                continue
-            con.execute(
-                "UPDATE contributions SET country_code = ? WHERE row_id = ? AND country_code IS NULL",
-                [cc, u["row_id"]],
-            )
-        _insert_audit(con, updates, stage="3")
 
     _print_stage_summary("Stage 3 — country imputation", stats, len(updates), dry_run)
     return {"stats": stats, "updates": updates}
