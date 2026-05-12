@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -280,6 +281,7 @@ class InstitutionMatcher:
     """
 
     DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+    DEFAULT_CACHE_PATH = Path("data/cache/institution_embeddings.pt")
 
     def __init__(self, model_name: str = DEFAULT_MODEL):
         self.model_name = model_name
@@ -300,9 +302,42 @@ class InstitutionMatcher:
             return
         model = self._load_model()
         names = [r.display_name for r in records]
+        cache_path = self.DEFAULT_CACHE_PATH
+        fingerprint_path = cache_path.with_suffix(".sha1")
+        fingerprint = hashlib.sha1(
+            "\n".join(f"{r.id}\t{r.display_name}\t{r.country_code or ''}" for r in records).encode("utf-8")
+        ).hexdigest()
+
+        loaded = False
+        try:
+            if cache_path.exists() and fingerprint_path.exists():
+                cached_fingerprint = fingerprint_path.read_text(encoding="utf-8").strip()
+                if cached_fingerprint == fingerprint:
+                    import torch
+
+                    cached = torch.load(cache_path, map_location="cpu")
+                    if hasattr(cached, "shape") and int(cached.shape[0]) == len(records):
+                        self._embeddings = cached
+                        loaded = True
+        except (OSError, RuntimeError, ValueError):
+            loaded = False
+
+        if loaded:
+            return
+
         self._embeddings = model.encode(
             names, convert_to_tensor=True, show_progress_bar=False, normalize_embeddings=True
         )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            import torch
+
+            to_save = self._embeddings.detach().cpu()
+            torch.save(to_save, cache_path)
+            fingerprint_path.write_text(fingerprint, encoding="utf-8")
+        except (OSError, RuntimeError, ValueError):
+            # Cache write failures should not block imputation.
+            return
 
     def find_match(self, query: str, threshold: float = 0.78) -> InstitutionMatch | None:
         candidates = self.top_k(query, k=1)
