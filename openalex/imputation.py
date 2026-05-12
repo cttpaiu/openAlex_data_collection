@@ -38,11 +38,11 @@ def normalize_country_code(code: str | None) -> str | None:
 
 
 COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
-    "US": ("united states", "united states of america", "usa", "u.s.a.", "u.s.", "america"),
-    "CN": ("china", "people's republic of china", "peoples republic of china", "pr china", "p.r. china"),
+    "US": ("united states", "united states of america", "usa", "u.s.a.", "u.s.a", "u.s.", "america"),
+    "CN": ("china", "people's republic of china", "peoples republic of china", "pr china", "p.r. china", "p.r.c.", "p.r.c"),
     "JP": ("japan",),
     "DE": ("germany", "deutschland"),
-    "GB": ("united kingdom", "uk", "england", "scotland", "wales", "northern ireland", "great britain"),
+    "GB": ("united kingdom", "uk", "u.k.", "u.k", "england", "scotland", "wales", "northern ireland", "great britain"),
     "FR": ("france",),
     "IT": ("italy",),
     "ES": ("spain",),
