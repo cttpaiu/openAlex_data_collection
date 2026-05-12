@@ -317,6 +317,12 @@ class InstitutionMatcher:
 
                     cached = torch.load(cache_path, map_location="cpu")
                     if hasattr(cached, "shape") and int(cached.shape[0]) == len(records):
+                        # Move to the model's device so cosine-sim doesn't
+                        # straddle CPU vs MPS/CUDA when the query is encoded
+                        # on accelerator.
+                        target_device = getattr(model, "device", None)
+                        if target_device is not None:
+                            cached = cached.to(target_device)
                         self._embeddings = cached
                         loaded = True
         except (OSError, RuntimeError, ValueError):
