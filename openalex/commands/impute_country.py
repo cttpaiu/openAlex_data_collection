@@ -427,6 +427,45 @@ def _llm_chat(
     raise RuntimeError(f"Unsupported LLM provider: {provider}")
 
 
+def _langchain_structured_call(
+    provider: str,
+    model: str,
+    base_url: str,
+    api_key: str,
+    prompt: str,
+    schema,
+    max_tokens: int,
+):
+    """Invoke an LLM via langchain and force the response into `schema` (pydantic).
+
+    Heavy imports are kept inside the function so non-imputation CLI commands
+    start fast.
+    """
+    if provider == "ollama":
+        from langchain_ollama import ChatOllama
+
+        llm = ChatOllama(
+            model=model,
+            base_url=base_url,
+            temperature=0,
+            num_predict=max_tokens,
+            format="json",
+        )
+    elif provider == "groq":
+        from langchain_groq import ChatGroq
+
+        llm = ChatGroq(
+            model=model,
+            api_key=api_key,
+            temperature=0,
+            max_tokens=max_tokens,
+        )
+    else:
+        raise RuntimeError(f"Unsupported LLM provider: {provider}")
+
+    return llm.with_structured_output(schema).invoke(prompt)
+
+
 def _ensure_audit_table(con) -> None:
     con.execute(
         """
