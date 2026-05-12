@@ -647,6 +647,8 @@ def _run_stage_1(
         "country_only": 0,
         "low_confidence": 0,
         "skipped": 0,
+        "no_prediction": 0,
+        "retry_recovered": 0,
     }
     if eligible == 0:
         console.print("[dim]Stage 1: nothing to impute.[/dim]")
@@ -670,6 +672,34 @@ def _run_stage_1(
                 bar.advance()
                 stats["skipped"] += len(chunk)
                 return
+
+            # Retry pass: if the LLM omitted row_ids from the response,
+            # re-query just those once with a sync call. Small local models
+            # frequently drop the trailing few items when num_predict
+            # exhausts mid-batch.
+            chunk_ids = {r[0] for r in chunk}
+            returned_ids = {pred.row_id for pred in predictions}
+            missing_ids = chunk_ids - returned_ids
+            if missing_ids:
+                missing_chunk = [r for r in chunk if r[0] in missing_ids]
+                retry_rows = [
+                    {"row_id": r[0], "raw_affiliation_string": r[2]}
+                    for r in missing_chunk
+                ]
+                try:
+                    retry_preds = _query_stage1_batch(
+                        provider=provider, base_url=base_url, api_key=api_key,
+                        model=model, batch_rows=retry_rows, max_tokens=max_tokens,
+                    )
+                    predictions = list(predictions) + list(retry_preds)
+                    recovered = {p.row_id for p in retry_preds} & missing_ids
+                    stats["retry_recovered"] += len(recovered)
+                    stats["no_prediction"] += len(missing_ids - recovered)
+                except Exception as exc:
+                    bar.log(
+                        f"[yellow]batch {batch_no} retry failed: {exc}[/yellow]"
+                    )
+                    stats["no_prediction"] += len(missing_ids)
 
             batch_matched = 0
             batch_synth = 0
