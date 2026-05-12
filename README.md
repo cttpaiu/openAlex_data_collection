@@ -62,10 +62,10 @@ uv run openalex sample --size 385    # random validation sample
 uv run openalex download             # download all → JSONL (~820 MB)
 uv run openalex convert-to-db        # JSONL → DuckDB
 uv run openalex check-db             # completeness health report
-uv run openalex impute-country --dry-run   # preview country imputation from affiliations
-uv run openalex impute-country --llm-fallback --llm-batch-size 20   # rule + batched LLM fallback
+uv run openalex impute-affiliation --dry-run   # preview country imputation from affiliations
+uv run openalex impute-affiliation --llm-fallback --llm-batch-size 20   # rule + batched LLM fallback
 # optional provider override (otherwise read from config/collection.yml -> llm.*)
-uv run openalex impute-country --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
+uv run openalex impute-affiliation --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
 ```
 
 ## Commands
@@ -81,8 +81,8 @@ uv run openalex impute-country --llm-fallback --llm-provider ollama --llm-model 
 | `openalex sample --size N` | Random reservoir sample to validate query quality |
 | `openalex download` | Download all matching papers to JSONL |
 | `openalex convert-to-db` | Load JSONL into normalised DuckDB (5-table schema) |
-| `openalex check-db` | Completeness health report (Tier 1/2/3 classification) |
-| `openalex impute-country` | Impute missing `contributions.country_code` from `raw_affiliation_string` (rule-first; optional batched LLM fallback) |
+| `openalex check-db` | Paper-centric coverage health report |
+| `openalex impute-affiliation` | Impute missing `institution_id` and `country_code` from `raw_affiliation_string` (rule-first; LLM via langchain + ollama/groq) |
 | `openalex export-format` | Export to analysis CSVs *(coming soon)* |
 
 ## Config Files
