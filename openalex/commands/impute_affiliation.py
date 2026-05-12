@@ -674,75 +674,99 @@ def _run_stage_2(
         console.print("[dim]Stage 2: nothing to backfill.[/dim]")
         return {"stats": stats, "updates": []}
 
-    console.print(f"[bold cyan]Stage 2 — institution-country backfill[/bold cyan] ({eligible:,} institutions)")
-
     updates: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
 
-    for inst_id, display_name, sample_aff in rows:
-        text = " | ".join(filter(None, [display_name, sample_aff]))
-        inf = infer_country_from_affiliation(text)
-        if inf.status == "unambiguous" and inf.country_code:
-            updates.append({
-                "row_id": None,
-                "paper_id": None,
-                "institution_id": inst_id,
-                "country_code": normalize_country_code(inf.country_code),
-                "raw_affiliation_string": sample_aff,
-                "matched_terms": ", ".join(inf.matched_terms),
-                "source": "rule",
-                "confidence": 1.0,
-            })
-            stats["rule_applied"] += 1
-        else:
-            unresolved.append({
-                "row_id": inst_id,
-                "institution_id": inst_id,
-                "display_name": display_name,
-                "sample_affiliation": sample_aff,
-            })
-
-    if unresolved and llm_enabled:
-        for chunk in _batched(unresolved, batch_size):
-            req_rows = [
-                {
-                    "row_id": r["row_id"],
-                    "display_name": r["display_name"],
-                    "sample_affiliation": r["sample_affiliation"],
-                }
-                for r in chunk
-            ]
-            try:
-                predictions = _query_stage2_batch(
-                    provider=provider,
-                    base_url=base_url,
-                    api_key=api_key,
-                    model=model,
-                    batch_rows=req_rows,
-                    max_tokens=max_tokens,
-                )
-            except Exception as exc:
-                console.print(f"[red]Stage 2 batch failed:[/red] {exc}")
-                continue
-            by_id = {r["institution_id"]: r for r in chunk}
-            for pred in predictions:
-                rec = by_id.get(pred.row_id)
-                if not rec or pred.status != "unambiguous" or not pred.country_code:
-                    continue
-                if pred.confidence < min_confidence:
-                    stats["llm_low_confidence"] += 1
-                    continue
+    with _StageProgress(
+        f"Stage 2 rule pass — institution-country ({eligible:,} institutions)",
+        eligible,
+        unit="institution",
+    ) as bar:
+        for idx, (inst_id, display_name, sample_aff) in enumerate(rows, start=1):
+            text = " | ".join(filter(None, [display_name, sample_aff]))
+            inf = infer_country_from_affiliation(text)
+            if inf.status == "unambiguous" and inf.country_code:
                 updates.append({
                     "row_id": None,
                     "paper_id": None,
-                    "institution_id": rec["institution_id"],
-                    "country_code": normalize_country_code(pred.country_code),
-                    "raw_affiliation_string": rec["sample_affiliation"],
-                    "matched_terms": "llm-inferred from display_name+sample_aff",
-                    "source": "llm",
-                    "confidence": pred.confidence,
+                    "institution_id": inst_id,
+                    "country_code": normalize_country_code(inf.country_code),
+                    "raw_affiliation_string": sample_aff,
+                    "matched_terms": ", ".join(inf.matched_terms),
+                    "source": "rule",
+                    "confidence": 1.0,
                 })
-                stats["llm_applied"] += 1
+                stats["rule_applied"] += 1
+            else:
+                unresolved.append({
+                    "row_id": inst_id,
+                    "institution_id": inst_id,
+                    "display_name": display_name,
+                    "sample_affiliation": sample_aff,
+                })
+            if idx % 500 == 0 or idx == eligible:
+                bar.log(
+                    f"institution {idx:,}/{eligible:,} → "
+                    f"rule={stats['rule_applied']:,} unresolved={len(unresolved):,}"
+                )
+            bar.advance()
+
+    if unresolved and llm_enabled:
+        total_batches_s2 = math.ceil(len(unresolved) / max(batch_size, 1))
+        with _StageProgress(
+            f"Stage 2 LLM pass ({len(unresolved):,} unresolved)",
+            total_batches_s2,
+        ) as bar:
+            for batch_no, chunk in enumerate(_batched(unresolved, batch_size), start=1):
+                req_rows = [
+                    {
+                        "row_id": r["row_id"],
+                        "display_name": r["display_name"],
+                        "sample_affiliation": r["sample_affiliation"],
+                    }
+                    for r in chunk
+                ]
+                try:
+                    predictions = _query_stage2_batch(
+                        provider=provider,
+                        base_url=base_url,
+                        api_key=api_key,
+                        model=model,
+                        batch_rows=req_rows,
+                        max_tokens=max_tokens,
+                    )
+                except Exception as exc:
+                    bar.log(f"[red]batch {batch_no}/{total_batches_s2} FAILED — {exc}[/red]")
+                    bar.advance()
+                    continue
+                by_id = {r["institution_id"]: r for r in chunk}
+                batch_applied = 0
+                batch_lowconf = 0
+                for pred in predictions:
+                    rec = by_id.get(pred.row_id)
+                    if not rec or pred.status != "unambiguous" or not pred.country_code:
+                        continue
+                    if pred.confidence < min_confidence:
+                        stats["llm_low_confidence"] += 1
+                        batch_lowconf += 1
+                        continue
+                    updates.append({
+                        "row_id": None,
+                        "paper_id": None,
+                        "institution_id": rec["institution_id"],
+                        "country_code": normalize_country_code(pred.country_code),
+                        "raw_affiliation_string": rec["sample_affiliation"],
+                        "matched_terms": "llm-inferred from display_name+sample_aff",
+                        "source": "llm",
+                        "confidence": pred.confidence,
+                    })
+                    stats["llm_applied"] += 1
+                    batch_applied += 1
+                bar.log(
+                    f"batch {batch_no}/{total_batches_s2} → "
+                    f"applied={batch_applied} lowconf={batch_lowconf}"
+                )
+                bar.advance()
 
     stats["unresolved"] = eligible - stats["rule_applied"] - stats["llm_applied"]
 
@@ -789,12 +813,18 @@ def _load_eligible_rows(con, limit: int | None):
     ).fetchall()
 
 
-def _compute_rule_inference(rows):
+def _compute_rule_inference(rows, on_row=None):
+    """Rule-only country inference over (row_id, paper_id, raw_aff) tuples.
+
+    Optional ``on_row(idx, total, updates_so_far, unresolved_so_far)`` is
+    invoked after each row so callers can drive a progress display.
+    """
     updates: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
     ambiguous = 0
     none = 0
-    for row_id, paper_id, raw_aff in rows:
+    total = len(rows)
+    for idx, (row_id, paper_id, raw_aff) in enumerate(rows, start=1):
         inf = infer_country_from_affiliation(raw_aff)
         if inf.status == "unambiguous" and inf.country_code:
             updates.append({
@@ -817,8 +847,10 @@ def _compute_rule_inference(rows):
                 ambiguous += 1
             else:
                 none += 1
+        if on_row is not None:
+            on_row(idx, total, len(updates), len(unresolved))
     return {
-        "eligible": len(rows),
+        "eligible": total,
         "updates": updates,
         "unresolved": unresolved,
         "ambiguous": ambiguous,
@@ -862,12 +894,19 @@ def _llm_infer_batched(
     batch_size: int,
     min_confidence: float,
     max_tokens: int,
+    on_batch=None,
 ):
+    """LLM Stage 3 pass with optional per-batch progress callback.
+
+    ``on_batch(batch_no, total_batches, applied, lowconf, none_or_amb, failed_msg)``
+    is invoked after each LLM call. ``failed_msg`` is ``None`` on success.
+    """
     updates: list[dict[str, Any]] = []
     stats = {"attempted": 0, "applied": 0, "low_confidence": 0, "none_or_ambiguous": 0}
     by_id = {r["row_id"]: r for r in unresolved_rows}
+    total_batches = math.ceil(len(unresolved_rows) / max(batch_size, 1))
 
-    for chunk in _batched(unresolved_rows, batch_size):
+    for batch_no, chunk in enumerate(_batched(unresolved_rows, batch_size), start=1):
         request_rows = [
             {"row_id": r["row_id"], "raw_affiliation_string": r["raw_affiliation_string"]}
             for r in chunk
@@ -882,10 +921,14 @@ def _llm_infer_batched(
                 max_tokens=max_tokens,
             )
         except Exception as exc:
-            console.print(f"[red]Stage 3 batch failed:[/red] {exc}")
+            if on_batch is not None:
+                on_batch(batch_no, total_batches, 0, 0, 0, str(exc))
             continue
         stats["attempted"] += len(chunk)
 
+        batch_applied = 0
+        batch_lowconf = 0
+        batch_none = 0
         for pred in predictions:
             rec = by_id.get(pred.row_id)
             if not rec:
@@ -893,9 +936,11 @@ def _llm_infer_batched(
             code = normalize_country_code(pred.country_code)
             if not code or pred.status != "unambiguous":
                 stats["none_or_ambiguous"] += 1
+                batch_none += 1
                 continue
             if pred.confidence < min_confidence:
                 stats["low_confidence"] += 1
+                batch_lowconf += 1
                 continue
             updates.append({
                 "row_id": pred.row_id,
@@ -907,6 +952,9 @@ def _llm_infer_batched(
                 "confidence": pred.confidence,
             })
             stats["applied"] += 1
+            batch_applied += 1
+        if on_batch is not None:
+            on_batch(batch_no, total_batches, batch_applied, batch_lowconf, batch_none, None)
     return updates, stats
 
 
@@ -928,9 +976,18 @@ def _run_stage_3(
         console.print("[dim]Stage 3: nothing to impute.[/dim]")
         return {"stats": {"eligible": 0, "rule_applied": 0, "llm_applied": 0}, "updates": []}
 
-    console.print(f"[bold cyan]Stage 3 — country imputation[/bold cyan] ({len(rows):,} rows)")
+    eligible_n = len(rows)
+    with _StageProgress(
+        f"Stage 3 rule pass — country imputation ({eligible_n:,} rows)",
+        eligible_n,
+        unit="row",
+    ) as bar:
+        def _on_row(idx, total, applied, unresolved):
+            if idx % 500 == 0 or idx == total:
+                bar.log(f"row {idx:,}/{total:,} → rule={applied:,} unresolved={unresolved:,}")
+            bar.advance()
+        rule_result = _compute_rule_inference(rows, on_row=_on_row)
 
-    rule_result = _compute_rule_inference(rows)
     updates = list(rule_result["updates"])
     stats = {
         "eligible": rule_result["eligible"],
@@ -944,16 +1001,32 @@ def _run_stage_3(
     }
 
     if rule_result["unresolved"] and llm_enabled:
-        llm_updates, llm_stats = _llm_infer_batched(
-            unresolved_rows=rule_result["unresolved"],
-            provider=provider,
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
-            batch_size=batch_size,
-            min_confidence=min_confidence,
-            max_tokens=max_tokens,
-        )
+        unresolved_n = len(rule_result["unresolved"])
+        total_batches_s3 = math.ceil(unresolved_n / max(batch_size, 1))
+        with _StageProgress(
+            f"Stage 3 LLM pass ({unresolved_n:,} unresolved)",
+            total_batches_s3,
+        ) as bar:
+            def _on_batch(batch_no, total_batches, applied, lowconf, none_or_amb, failed):
+                if failed is not None:
+                    bar.log(f"[red]batch {batch_no}/{total_batches} FAILED — {failed}[/red]")
+                else:
+                    bar.log(
+                        f"batch {batch_no}/{total_batches} → "
+                        f"applied={applied} lowconf={lowconf} none/amb={none_or_amb}"
+                    )
+                bar.advance()
+            llm_updates, llm_stats = _llm_infer_batched(
+                unresolved_rows=rule_result["unresolved"],
+                provider=provider,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                batch_size=batch_size,
+                min_confidence=min_confidence,
+                max_tokens=max_tokens,
+                on_batch=_on_batch,
+            )
         updates.extend(llm_updates)
         stats["llm_attempted"] = llm_stats["attempted"]
         stats["llm_applied"] = llm_stats["applied"]
