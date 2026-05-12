@@ -444,6 +444,37 @@ def _query_stage1_batch(
     return [InstitutionPrediction.from_pydantic(item) for item in response.predictions]
 
 
+def _flush_stage1_batch(
+    con,
+    batch_synth_inserts: list[dict[str, Any]],
+    batch_updates: list[dict[str, Any]],
+) -> None:
+    """Write a single Stage 1 batch's synthetic institutions + contribution
+    updates + audit rows and commit. Per-batch flush makes the stage
+    cancel-safe: every batch that returns from the LLM is persisted before
+    the next batch starts."""
+    for inst in batch_synth_inserts:
+        cc = _ensure_country(con, inst["country_code"]) if inst["country_code"] else None
+        con.execute(
+            "INSERT INTO institutions (id, display_name, country_code, type, ror_id, is_synthetic) "
+            "VALUES (?, ?, ?, NULL, NULL, TRUE) ON CONFLICT DO NOTHING",
+            [inst["id"], inst["display_name"], cc],
+        )
+    for u in batch_updates:
+        cc = _ensure_country(con, u["country_code"]) if u["country_code"] else None
+        con.execute(
+            """
+            UPDATE contributions
+            SET institution_id = COALESCE(institution_id, ?),
+                country_code = COALESCE(country_code, ?)
+            WHERE row_id = ?
+            """,
+            [u["institution_id"], cc, u["row_id"]],
+        )
+    _insert_audit(con, batch_updates, stage="1")
+    con.commit()
+
+
 def _run_stage_1(
     con,
     dry_run: bool,
