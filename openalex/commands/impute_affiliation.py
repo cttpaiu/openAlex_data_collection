@@ -31,13 +31,26 @@ net for databases produced before that move.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 import click
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 from openalex.config import load_config
@@ -200,6 +213,62 @@ def _batched(items, batch_size: int):
     step = max(1, batch_size)
     for i in range(0, len(items), step):
         yield items[i:i + step]
+
+
+class _StageProgress:
+    """Live progress bar + rolling tail of recent log lines.
+
+    Wraps a `rich.Progress` (bar + spinner + ETA + elapsed) and a small
+    `Panel` showing the last `tail` log lines so a long-running stage
+    visibly tells the user "still working, here's what just happened."
+    """
+
+    def __init__(self, stage_name: str, total: int, tail: int = 5, unit: str = "batch"):
+        self.stage_name = stage_name
+        self.unit = unit
+        self.progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold cyan]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            console=console,
+            transient=False,
+        )
+        self.task = self.progress.add_task(stage_name, total=max(total, 1))
+        self.logs: deque[str] = deque(maxlen=tail)
+        self.live: Live | None = None
+
+    def __enter__(self) -> "_StageProgress":
+        self.live = Live(
+            self._render(), console=console, refresh_per_second=4, transient=False
+        )
+        self.live.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self.live is not None:
+            self.live.__exit__(exc_type, exc, tb)
+
+    def _render(self) -> Group:
+        if self.logs:
+            body = "\n".join(self.logs)
+        else:
+            body = f"[dim]waiting for first {self.unit}...[/dim]"
+        return Group(self.progress, Panel(body, title="Recent activity", border_style="dim"))
+
+    def log(self, line: str) -> None:
+        self.logs.append(line)
+        if self.live is not None:
+            self.live.update(self._render())
+
+    def advance(self, n: int = 1) -> None:
+        self.progress.advance(self.task, n)
+        if self.live is not None:
+            self.live.update(self._render())
 
 
 def _langchain_structured_call(
