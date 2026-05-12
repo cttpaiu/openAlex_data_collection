@@ -40,8 +40,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "retry_delay": 2,
     },
     "llm": {
-        "provider": "groq",
-        "model": "llama-3.1-8b-instant",
+        "provider": "ollama",
+        "model": "sorc/qwen3.5-instruct:2b",
         "base_url": "http://localhost:11434",
     },
     "output": {
@@ -218,8 +218,8 @@ def load_config(config_path: str = "config/collection.yml") -> AppConfig:
         concurrent_requests=coll.get("concurrent_requests", 10),
         max_retries=coll.get("max_retries", 5),
         retry_delay=coll.get("retry_delay", 2),
-        llm_provider=str(llm.get("provider", "groq")).strip().lower(),
-        llm_model=str(llm.get("model", "llama-3.1-8b-instant")).strip(),
+        llm_provider=str(llm.get("provider", "ollama")).strip().lower(),
+        llm_model=str(llm.get("model", "sorc/qwen3.5-instruct:2b")).strip(),
         llm_base_url=str(llm.get("base_url", "http://localhost:11434")).strip(),
         jsonl_dir=out.get("jsonl_dir", "data/raw/"),
         db_dir=out.get("db_dir", "data/db/"),

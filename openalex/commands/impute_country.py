@@ -56,8 +56,8 @@ from openalex.imputation import (
 
 console = Console()
 
-DEFAULT_MODEL = "llama-3.1-8b-instant"
-DEFAULT_PROVIDER = "groq"
+DEFAULT_MODEL = "sorc/qwen3.5-instruct:2b"
+DEFAULT_PROVIDER = "ollama"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 
