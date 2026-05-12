@@ -33,9 +33,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -59,12 +56,9 @@ from openalex.imputation import (
 
 console = Console()
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "llama-3.1-8b-instant"
 DEFAULT_PROVIDER = "groq"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-_GROQ_NEXT_ALLOWED_AT = 0.0
-_GROQ_AVG_TOTAL_TOKENS = 900.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -206,227 +200,6 @@ def _batched(items, batch_size: int):
     step = max(1, batch_size)
     for i in range(0, len(items), step):
         yield items[i:i + step]
-
-
-def _extract_json_payload(content: str) -> dict[str, Any]:
-    try:
-        parsed = json.loads(content)
-        if isinstance(parsed, dict):
-            return parsed
-    except Exception:
-        pass
-    start = content.find("{")
-    if start == -1:
-        raise ValueError("No JSON object found in LLM response")
-    decoder = json.JSONDecoder()
-    parsed, _ = decoder.raw_decode(content[start:])
-    if not isinstance(parsed, dict):
-        raise ValueError("LLM response JSON is not an object")
-    return parsed
-
-
-def _retry_wait_seconds(error_detail: str, fallback: float = 2.0, retry_after: str | None = None) -> float:
-    if retry_after:
-        try:
-            return max(float(retry_after), 1.0)
-        except ValueError:
-            pass
-    match = re.search(r"try again in\s*([0-9.]+)s", error_detail, re.IGNORECASE)
-    if match:
-        return max(float(match.group(1)), 1.0)
-    return fallback
-
-
-def _parse_reset_seconds(raw_reset: str | None) -> float:
-    if not raw_reset:
-        return 0.0
-    value = raw_reset.strip().lower()
-    if not value:
-        return 0.0
-    try:
-        return max(float(value), 0.0)
-    except ValueError:
-        pass
-    total = 0.0
-    for amount, unit in re.findall(r"([0-9]*\.?[0-9]+)\s*([hms])", value):
-        num = float(amount)
-        if unit == "h":
-            total += num * 3600.0
-        elif unit == "m":
-            total += num * 60.0
-        else:
-            total += num
-    return max(total, 0.0)
-
-
-def _maybe_wait_for_groq_window() -> None:
-    now = time.time()
-    if _GROQ_NEXT_ALLOWED_AT > now:
-        wait_seconds = _GROQ_NEXT_ALLOWED_AT - now
-        console.print(f"[yellow]Groq window cooling down. Sleeping {wait_seconds:.1f}s...[/yellow]")
-        time.sleep(wait_seconds)
-
-
-def _apply_groq_rate_headers(headers, payload: dict[str, Any], max_tokens: int) -> None:
-    global _GROQ_NEXT_ALLOWED_AT, _GROQ_AVG_TOTAL_TOKENS
-    if headers is None:
-        return
-    remaining_raw = headers.get("x-ratelimit-remaining-tokens")
-    reset_raw = headers.get("x-ratelimit-reset-tokens")
-    if remaining_raw is None or reset_raw is None:
-        return
-    try:
-        remaining_tokens = int(float(str(remaining_raw).strip()))
-    except ValueError:
-        return
-    reset_seconds = _parse_reset_seconds(str(reset_raw))
-    if reset_seconds <= 0:
-        return
-
-    usage_total = payload.get("usage", {}).get("total_tokens")
-    request_tokens = int(usage_total) if isinstance(usage_total, (int, float)) else max_tokens
-    _GROQ_AVG_TOTAL_TOKENS = (0.7 * _GROQ_AVG_TOTAL_TOKENS) + (0.3 * float(request_tokens))
-    reserve_needed = int(max(_GROQ_AVG_TOTAL_TOKENS * 1.4, max_tokens * 0.8, 350))
-    if remaining_tokens < reserve_needed:
-        _GROQ_NEXT_ALLOWED_AT = max(_GROQ_NEXT_ALLOWED_AT, time.time() + reset_seconds)
-        console.print(
-            f"[yellow]Groq tokens low ({remaining_tokens} left). "
-            f"Waiting {reset_seconds:.1f}s for reset...[/yellow]"
-        )
-
-
-def _ollama_chat(base_url: str, model: str, prompt: str, max_tokens: int = 400) -> dict[str, Any]:
-    endpoint = f"{base_url.rstrip('/')}/api/chat"
-    body = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-        "format": "json",
-        "options": {
-            "temperature": 0,
-            "num_predict": max_tokens,
-        },
-    }
-    req = urllib.request.Request(
-        endpoint,
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            payload = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        detail = ""
-        try:
-            detail = exc.read().decode().strip()
-        except Exception:
-            detail = ""
-        if detail:
-            raise RuntimeError(f"Ollama HTTP {exc.code}: {detail}") from exc
-        raise RuntimeError(f"Ollama HTTP {exc.code}: {exc.reason}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Ollama network error: {exc.reason}") from exc
-
-    if payload.get("error"):
-        raise RuntimeError(f"Ollama API error: {payload['error']}")
-    content = (
-        payload.get("message", {}).get("content")
-        or payload.get("response", "")
-    )
-    return _extract_json_payload(content)
-
-
-def _groq_chat(
-    api_key: str,
-    model: str,
-    prompt: str,
-    max_tokens: int = 1800,
-    max_retries: int = 4,
-) -> dict[str, Any]:
-    """Single Groq chat-completion call expecting a JSON-object response."""
-    body = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0,
-        "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
-    }
-    body_bytes = json.dumps(body).encode()
-    req = urllib.request.Request(
-        GROQ_URL,
-        data=body_bytes,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0",
-        },
-        method="POST",
-    )
-    for attempt in range(max_retries + 1):
-        _maybe_wait_for_groq_window()
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                payload = json.loads(resp.read().decode())
-                _apply_groq_rate_headers(getattr(resp, "headers", None), payload, max_tokens=max_tokens)
-            break
-        except urllib.error.HTTPError as exc:
-            detail = ""
-            try:
-                detail = exc.read().decode().strip()
-            except Exception:
-                detail = ""
-            if exc.code == 429 and attempt < max_retries:
-                retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                wait_seconds = _retry_wait_seconds(
-                    detail,
-                    fallback=min(2 * (attempt + 1), 20),
-                    retry_after=retry_after,
-                )
-                global _GROQ_NEXT_ALLOWED_AT
-                _GROQ_NEXT_ALLOWED_AT = max(_GROQ_NEXT_ALLOWED_AT, time.time() + wait_seconds)
-                console.print(
-                    f"[yellow]Groq rate limit (429). Retrying in {wait_seconds:.1f}s "
-                    f"({attempt + 1}/{max_retries})...[/yellow]"
-                )
-                continue
-            if detail:
-                raise RuntimeError(f"Groq HTTP {exc.code}: {detail}") from exc
-            raise RuntimeError(f"Groq HTTP {exc.code}: {exc.reason}") from exc
-        except urllib.error.URLError as exc:
-            if attempt < max_retries:
-                wait_seconds = min(2 * (attempt + 1), 10)
-                console.print(
-                    f"[yellow]Groq network issue. Retrying in {wait_seconds:.1f}s "
-                    f"({attempt + 1}/{max_retries})...[/yellow]"
-                )
-                time.sleep(wait_seconds)
-                continue
-            raise RuntimeError(f"Groq network error: {exc.reason}") from exc
-    else:
-        raise RuntimeError("Groq request failed after retries")
-
-    if "error" in payload:
-        err = payload["error"]
-        raise RuntimeError(f"Groq API error ({err.get('code', 'unknown')}): {err.get('message', err)}")
-    content = payload["choices"][0]["message"]["content"]
-    return _extract_json_payload(content)
-
-
-def _llm_chat(
-    provider: str,
-    api_key: str,
-    base_url: str,
-    model: str,
-    prompt: str,
-    max_tokens: int,
-) -> dict[str, Any]:
-    if provider == "groq":
-        return _groq_chat(api_key=api_key, model=model, prompt=prompt, max_tokens=max_tokens)
-    if provider == "ollama":
-        return _ollama_chat(base_url=base_url, model=model, prompt=prompt, max_tokens=max_tokens)
-    raise RuntimeError(f"Unsupported LLM provider: {provider}")
 
 
 def _langchain_structured_call(
@@ -772,21 +545,21 @@ def _query_stage2_batch(
     prompt = (
         "Task: infer ISO-3166-1 alpha-2 country codes for each institution.\n"
         "Rules:\n"
-        '1) Return ONLY a valid JSON object: {"predictions":[{"row_id":<int>,'
-        '"country_code":<"AA"|null>,"status":"unambiguous"|"ambiguous"|"none","confidence":<0..1>}]}\n'
-        "2) Use both display_name and sample_affiliation when present.\n"
-        "3) Keep row_id exactly as input.\n"
+        "1) Use both display_name and sample_affiliation when present.\n"
+        "2) Keep row_id exactly as input.\n"
+        "3) status is one of: unambiguous, ambiguous, none.\n"
         f"Input:\n{json.dumps(batch_rows, ensure_ascii=False)}"
     )
-    response = _llm_chat(
+    response = _langchain_structured_call(
         provider=provider,
-        api_key=api_key,
-        base_url=base_url,
         model=model,
+        base_url=base_url,
+        api_key=api_key,
         prompt=prompt,
+        schema=CountryPredictionResponse,
         max_tokens=max_tokens,
     )
-    return [CountryPrediction.from_dict(p) for p in response.get("predictions", [])]
+    return [CountryPrediction.from_pydantic(item) for item in response.predictions]
 
 
 def _run_stage_2(
@@ -979,20 +752,20 @@ def _query_stage3_batch(
     prompt = (
         "Task: infer ISO-3166-1 alpha-2 country codes from affiliation strings.\n"
         "Rules:\n"
-        '1) Return ONLY a valid JSON object: {"predictions":[{"row_id":<int>,'
-        '"country_code":<"AA"|null>,"status":"unambiguous"|"ambiguous"|"none","confidence":<0..1>}]}\n'
-        "2) Keep row_id exactly as input.\n"
+        "1) Keep row_id exactly as input.\n"
+        "2) status is one of: unambiguous, ambiguous, none.\n"
         f"Input:\n{json.dumps(batch_rows, ensure_ascii=False)}"
     )
-    response = _llm_chat(
+    response = _langchain_structured_call(
         provider=provider,
-        api_key=api_key,
-        base_url=base_url,
         model=model,
+        base_url=base_url,
+        api_key=api_key,
         prompt=prompt,
+        schema=CountryPredictionResponse,
         max_tokens=max_tokens,
     )
-    return [CountryPrediction.from_dict(p) for p in response.get("predictions", [])]
+    return [CountryPrediction.from_pydantic(item) for item in response.predictions]
 
 
 def _llm_infer_batched(
