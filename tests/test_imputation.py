@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from openalex.commands.database import OpenAlexLoader
-from openalex.commands.impute_country import _compute_rule_inference
+from openalex.commands.impute_affiliation import _compute_rule_inference
 from openalex.imputation import infer_country_from_affiliation, normalize_country_code
 
 

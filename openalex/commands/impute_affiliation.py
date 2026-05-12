@@ -1,9 +1,10 @@
-"""Command: impute-country — fill missing country/institution data.
+"""Command: impute-affiliation — fill missing institution_id + country_code.
 
 Three stages:
 
 * **Stage 1** — ``contributions.institution_id IS NULL`` and a non-empty
-  ``raw_affiliation_string`` is present. Groq extracts an institution name
+  ``raw_affiliation_string`` is present. The LLM (Ollama or Groq via
+  langchain ``.with_structured_output``) extracts an institution name
   and country from the raw text. The extracted name is matched against
   existing institutions via ``InstitutionMatcher`` (sentence-transformers
   cosine similarity). On a match above ``--match-threshold`` the existing
@@ -14,14 +15,13 @@ Three stages:
 * **Stage 2** — ``institutions.country_code IS NULL``. One LLM call per
   institution (deduped, cheap path). Rule-first inference on the
   institution display_name plus a single sample raw_affiliation_string
-  drawn from any contribution that uses the institution; Groq fallback
+  drawn from any contribution that uses the institution; LLM fallback
   only on unresolved cases. Country fix cascades: every
   ``contributions.country_code IS NULL`` row whose ``institution_id``
   matches gets updated.
 
 * **Stage 3** — ``contributions.country_code IS NULL`` after stages 1+2.
-  Rule + Groq fallback on the raw affiliation, identical to the original
-  flow.
+  Rule + LLM fallback on the raw affiliation.
 
 The HK→CN normalisation lives in ``convert-to-db`` (load time). A final
 ``_merge_hong_kong_to_china`` pass remains here as an idempotent safety
@@ -66,7 +66,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@click.command("impute-country")
+@click.command("impute-affiliation")
 @click.option("--config", "config_path", default="config/collection.yml", show_default=True)
 @click.option("--db", "db_path", default=None, help="Path to DuckDB file")
 @click.option("--dry-run", is_flag=True, help="Show what would be updated without writing changes")
@@ -89,7 +89,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
     "--match-threshold", type=float, default=0.78, show_default=True,
     help="Cosine similarity threshold for Stage 1 institution dedup",
 )
-def impute_country_command(
+def impute_affiliation_command(
     config_path: str,
     db_path: str | None,
     dry_run: bool,

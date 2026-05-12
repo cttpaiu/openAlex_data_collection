@@ -10,7 +10,7 @@ from openalex.commands.sample import sample_command
 from openalex.commands.download import download_command
 from openalex.commands.database import convert_to_db_command
 from openalex.commands.check_db import check_db_command
-from openalex.commands.impute_country import impute_country_command
+from openalex.commands.impute_affiliation import impute_affiliation_command
 from openalex.commands.export import export_format_command
 from openalex.commands.validate import validate_command
 
@@ -33,7 +33,7 @@ def cli() -> None:
       9. openalex download              Download all papers → JSONL
      10. openalex convert-to-db         JSONL → DuckDB
      11. openalex check-db              Completeness health report
-     12. openalex impute-country        Impute missing country from affiliations
+     12. openalex impute-affiliation    Impute missing institution + country from raw affiliations
     """
 
 
@@ -47,5 +47,5 @@ cli.add_command(sample_command)
 cli.add_command(download_command)
 cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
-cli.add_command(impute_country_command)
+cli.add_command(impute_affiliation_command)
 cli.add_command(export_format_command)
