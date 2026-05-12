@@ -471,8 +471,6 @@ def _run_stage_1(
         console.print("[dim]Stage 1: nothing to impute.[/dim]")
         return {"stats": stats, "updates": [], "synthetic_inserts": []}
 
-    console.print(f"[bold cyan]Stage 1 — institution imputation[/bold cyan] ({eligible:,} rows)")
-
     matcher = InstitutionMatcher()
     matcher.index(_load_existing_institutions(con))
 
@@ -481,77 +479,95 @@ def _run_stage_1(
     synthetic_inserts: list[dict[str, Any]] = []
     seen_synthetic: set[str] = set()
 
-    for chunk in _batched(rows, batch_size):
-        request_rows = [
-            {"row_id": r[0], "raw_affiliation_string": r[2]} for r in chunk
-        ]
-        try:
-            predictions = _query_stage1_batch(
-                provider=provider,
-                base_url=base_url,
-                api_key=api_key,
-                model=model,
-                batch_rows=request_rows,
-                max_tokens=max_tokens,
-            )
-        except Exception as exc:
-            console.print(f"[red]Stage 1 batch failed:[/red] {exc}")
-            stats["skipped"] += len(chunk)
-            continue
-
-        for pred in predictions:
-            row = by_id.get(pred.row_id)
-            if not row:
-                continue
-            if pred.confidence < min_confidence:
-                stats["low_confidence"] += 1
+    total_batches = math.ceil(eligible / max(batch_size, 1))
+    with _StageProgress(f"Stage 1 — institution imputation ({eligible:,} rows)", total_batches) as bar:
+        for batch_no, chunk in enumerate(_batched(rows, batch_size), start=1):
+            request_rows = [
+                {"row_id": r[0], "raw_affiliation_string": r[2]} for r in chunk
+            ]
+            try:
+                predictions = _query_stage1_batch(
+                    provider=provider,
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    batch_rows=request_rows,
+                    max_tokens=max_tokens,
+                )
+            except Exception as exc:
+                bar.log(f"[red]batch {batch_no}/{total_batches} FAILED — {exc}[/red]")
+                bar.advance()
+                stats["skipped"] += len(chunk)
                 continue
 
-            extracted_country = normalize_country_code(pred.country_code)
-            inst_id: str | None = None
-            inst_country: str | None = None
-            source = "llm"
-            matched_term = ""
+            batch_matched = 0
+            batch_synth = 0
+            batch_skipped = 0
+            batch_lowconf = 0
+            for pred in predictions:
+                row = by_id.get(pred.row_id)
+                if not row:
+                    continue
+                if pred.confidence < min_confidence:
+                    stats["low_confidence"] += 1
+                    batch_lowconf += 1
+                    continue
 
-            if pred.institution_name:
-                match = matcher.find_match(pred.institution_name, threshold=match_threshold)
-                if match:
-                    inst_id = match.institution_id
-                    inst_country = normalize_country_code(match.country_code) or extracted_country
-                    matched_term = f"matched: {match.display_name} (score={match.score:.2f})"
-                    stats["matched_existing"] += 1
-                else:
-                    syn_id = synthetic_institution_id(pred.institution_name)
-                    inst_id = syn_id
-                    inst_country = extracted_country
-                    matched_term = f"synthetic: {pred.institution_name}"
-                    if syn_id not in seen_synthetic:
-                        seen_synthetic.add(syn_id)
-                        synthetic_inserts.append({
-                            "id": syn_id,
-                            "display_name": pred.institution_name,
-                            "country_code": extracted_country,
-                        })
-                    stats["created_synthetic"] += 1
-            elif extracted_country:
-                stats["country_only"] += 1
+                extracted_country = normalize_country_code(pred.country_code)
+                inst_id: str | None = None
+                inst_country: str | None = None
                 source = "llm"
-                matched_term = "country-only (no institution extracted)"
+                matched_term = ""
 
-            if inst_id is None and not extracted_country:
-                stats["skipped"] += 1
-                continue
+                if pred.institution_name:
+                    match = matcher.find_match(pred.institution_name, threshold=match_threshold)
+                    if match:
+                        inst_id = match.institution_id
+                        inst_country = normalize_country_code(match.country_code) or extracted_country
+                        matched_term = f"matched: {match.display_name} (score={match.score:.2f})"
+                        stats["matched_existing"] += 1
+                        batch_matched += 1
+                    else:
+                        syn_id = synthetic_institution_id(pred.institution_name)
+                        inst_id = syn_id
+                        inst_country = extracted_country
+                        matched_term = f"synthetic: {pred.institution_name}"
+                        if syn_id not in seen_synthetic:
+                            seen_synthetic.add(syn_id)
+                            synthetic_inserts.append({
+                                "id": syn_id,
+                                "display_name": pred.institution_name,
+                                "country_code": extracted_country,
+                            })
+                        stats["created_synthetic"] += 1
+                        batch_synth += 1
+                elif extracted_country:
+                    stats["country_only"] += 1
+                    source = "llm"
+                    matched_term = "country-only (no institution extracted)"
 
-            updates.append({
-                "row_id": pred.row_id,
-                "paper_id": row["paper_id"],
-                "raw_affiliation_string": row["raw_affiliation_string"],
-                "institution_id": inst_id,
-                "country_code": inst_country,
-                "matched_terms": matched_term,
-                "source": source,
-                "confidence": pred.confidence,
-            })
+                if inst_id is None and not extracted_country:
+                    stats["skipped"] += 1
+                    batch_skipped += 1
+                    continue
+
+                updates.append({
+                    "row_id": pred.row_id,
+                    "paper_id": row["paper_id"],
+                    "raw_affiliation_string": row["raw_affiliation_string"],
+                    "institution_id": inst_id,
+                    "country_code": inst_country,
+                    "matched_terms": matched_term,
+                    "source": source,
+                    "confidence": pred.confidence,
+                })
+
+            bar.log(
+                f"batch {batch_no}/{total_batches} → "
+                f"matched={batch_matched} synth={batch_synth} "
+                f"skip={batch_skipped} lowconf={batch_lowconf}"
+            )
+            bar.advance()
 
     if not dry_run:
         for inst in synthetic_inserts:
