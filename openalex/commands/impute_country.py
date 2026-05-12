@@ -46,9 +46,11 @@ from rich.table import Table
 from openalex.config import load_config
 from openalex.imputation import (
     CountryPrediction,
+    CountryPredictionResponse,
     InstitutionMatch,
     InstitutionMatcher,
     InstitutionPrediction,
+    InstitutionPredictionResponse,
     InstitutionRecord,
     infer_country_from_affiliation,
     normalize_country_code,
@@ -582,23 +584,22 @@ def _query_stage1_batch(
         "Task: from each affiliation string, extract the primary institution name "
         "(university, research institute, lab, or company) and its ISO-3166-1 alpha-2 country code.\n"
         "Rules:\n"
-        '1) Return ONLY a valid JSON object: {"predictions":[{"row_id":<int>,'
-        '"institution_name":<string|null>,"country_code":<"AA"|null>,"confidence":<0..1>}]}\n'
-        "2) Keep row_id exactly as input.\n"
-        "3) institution_name should be the most specific identifiable organisation, "
+        "1) Keep row_id exactly as input.\n"
+        "2) institution_name should be the most specific identifiable organisation, "
         "without departments or addresses (e.g. 'University of Oxford' not 'Dept of Physics, Univ of Oxford').\n"
-        "4) Use null when uncertain.\n"
+        "3) Use null when uncertain.\n"
         f"Input:\n{json.dumps(batch_rows, ensure_ascii=False)}"
     )
-    response = _llm_chat(
+    response = _langchain_structured_call(
         provider=provider,
-        api_key=api_key,
-        base_url=base_url,
         model=model,
+        base_url=base_url,
+        api_key=api_key,
         prompt=prompt,
+        schema=InstitutionPredictionResponse,
         max_tokens=max_tokens,
     )
-    return [InstitutionPrediction.from_dict(p) for p in response.get("predictions", [])]
+    return [InstitutionPrediction.from_pydantic(item) for item in response.predictions]
 
 
 def _run_stage_1(

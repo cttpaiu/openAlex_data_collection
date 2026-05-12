@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 @dataclass(frozen=True)
@@ -204,6 +204,16 @@ class InstitutionPredictionItem(BaseModel):
 class InstitutionPredictionResponse(BaseModel):
     predictions: list[InstitutionPredictionItem]
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_incomplete(cls, data: Any) -> Any:
+        if isinstance(data, dict) and isinstance(data.get("predictions"), list):
+            data["predictions"] = [
+                p for p in data["predictions"]
+                if isinstance(p, dict) and p.get("row_id") is not None
+            ]
+        return data
+
 
 class CountryPredictionItem(BaseModel):
     row_id: int = Field(description="Echo of the input row_id")
@@ -219,6 +229,16 @@ class CountryPredictionItem(BaseModel):
 
 class CountryPredictionResponse(BaseModel):
     predictions: list[CountryPredictionItem]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_incomplete(cls, data: Any) -> Any:
+        if isinstance(data, dict) and isinstance(data.get("predictions"), list):
+            data["predictions"] = [
+                p for p in data["predictions"]
+                if isinstance(p, dict) and p.get("row_id") is not None
+            ]
+        return data
 
 
 # ─────────────────────────────────────────────────────────────────────────────
