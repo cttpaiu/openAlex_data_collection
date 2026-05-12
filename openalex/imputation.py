@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 
 @dataclass(frozen=True)
 class CountryInference:
@@ -141,6 +143,16 @@ class InstitutionPrediction:
             confidence=float(d.get("confidence") or 0.0),
         )
 
+    @classmethod
+    def from_pydantic(cls, item: "InstitutionPredictionItem") -> "InstitutionPrediction":
+        cc = _to_str_or_none(item.country_code)
+        return cls(
+            row_id=int(item.row_id),
+            institution_name=_to_str_or_none(item.institution_name),
+            country_code=cc.upper() if cc else None,
+            confidence=float(item.confidence or 0.0),
+        )
+
 
 @dataclass
 class CountryPrediction:
@@ -160,6 +172,53 @@ class CountryPrediction:
             status=(_to_str_or_none(d.get("status")) or "none").lower(),
             confidence=float(d.get("confidence") or 0.0),
         )
+
+    @classmethod
+    def from_pydantic(cls, item: "CountryPredictionItem") -> "CountryPrediction":
+        cc = _to_str_or_none(item.country_code)
+        return cls(
+            row_id=int(item.row_id),
+            country_code=cc.upper() if cc else None,
+            status=(_to_str_or_none(item.status) or "none").lower(),
+            confidence=float(item.confidence or 0.0),
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pydantic batch-response schemas for langchain .with_structured_output(...)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class InstitutionPredictionItem(BaseModel):
+    row_id: int = Field(description="Echo of the input row_id")
+    institution_name: str | None = Field(
+        default=None,
+        description="Primary institution name (university, lab, company); no department or address",
+    )
+    country_code: str | None = Field(
+        default=None, description="ISO-3166-1 alpha-2, or null if unknown"
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class InstitutionPredictionResponse(BaseModel):
+    predictions: list[InstitutionPredictionItem]
+
+
+class CountryPredictionItem(BaseModel):
+    row_id: int = Field(description="Echo of the input row_id")
+    country_code: str | None = Field(
+        default=None, description="ISO-3166-1 alpha-2, or null if unknown"
+    )
+    status: str = Field(
+        default="none",
+        description="One of: unambiguous, ambiguous, none",
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class CountryPredictionResponse(BaseModel):
+    predictions: list[CountryPredictionItem]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
