@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from openalex.commands.database import OpenAlexLoader
-from openalex.commands.impute_country import _compute_rule_inference, _extract_json_payload
+from openalex.commands.impute_affiliation import _compute_rule_inference
 from openalex.imputation import infer_country_from_affiliation, normalize_country_code
 
 
@@ -50,15 +47,6 @@ def test_normalize_country_code_hong_kong_to_china():
     assert normalize_country_code("cn") == "CN"
 
 
-def test_extract_json_payload_from_markdown_fence():
-    payload = _extract_json_payload(
-        "```json\n"
-        + json.dumps({"predictions": [{"row_id": 1, "country_code": "US", "status": "unambiguous", "confidence": 0.95, "reason": "usa"}]})
-        + "\n```"
-    )
-    assert payload["predictions"][0]["country_code"] == "US"
-
-
 def test_database_loader_preserves_raw_affiliation_when_no_institution(tmp_path):
     db_path = tmp_path / "test.duckdb"
     jsonl_path = tmp_path / "dummy.jsonl"
@@ -89,3 +77,5 @@ def test_database_loader_preserves_raw_affiliation_when_no_institution(tmp_path)
         assert raw_aff == "Department of Physics, University of Oxford, United Kingdom"
     finally:
         loader.close()
+
+

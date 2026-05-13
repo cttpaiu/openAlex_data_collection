@@ -1,9 +1,20 @@
-"""Country imputation helpers for affiliation strings."""
+"""Country imputation helpers for affiliation strings.
+
+Also hosts dataclasses for structured LLM responses (Stage 1: institution
+imputation, Stage 3: country imputation) and the embedding-based
+``InstitutionMatcher`` used to dedup against existing OpenAlex institution
+records before creating any synthetic entries.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field, model_validator
 
 
 @dataclass(frozen=True)
@@ -28,11 +39,11 @@ def normalize_country_code(code: str | None) -> str | None:
 
 
 COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
-    "US": ("united states", "united states of america", "usa", "u.s.a.", "u.s.", "america"),
-    "CN": ("china", "people's republic of china", "peoples republic of china", "pr china", "p.r. china"),
+    "US": ("united states", "united states of america", "usa", "u.s.a.", "u.s.a", "u.s.", "america"),
+    "CN": ("china", "people's republic of china", "peoples republic of china", "pr china", "p.r. china", "p.r.c.", "p.r.c"),
     "JP": ("japan",),
     "DE": ("germany", "deutschland"),
-    "GB": ("united kingdom", "uk", "england", "scotland", "wales", "northern ireland", "great britain"),
+    "GB": ("united kingdom", "uk", "u.k.", "u.k", "england", "scotland", "wales", "northern ireland", "great britain"),
     "FR": ("france",),
     "IT": ("italy",),
     "ES": ("spain",),
@@ -100,3 +111,282 @@ def infer_country_from_affiliation(raw_affiliation: str) -> CountryInference:
     if len(matched_codes) > 1:
         return CountryInference(country_code=None, status="ambiguous", matched_terms=tuple(matched_terms))
     return CountryInference(country_code=None, status="none", matched_terms=())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Structured LLM response dataclasses (Stage 1 + Stage 3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _coerce_row_id(value: Any) -> int | str:
+    """row_id carries either a numeric contribution row_id (stages 1, 3) or an
+    institution_id string (stage 2). Preserve whichever shape the LLM echoes."""
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    try:
+        return int(s)
+    except ValueError:
+        return s
+
+
+def _to_str_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s or None
+
+
+@dataclass
+class InstitutionPrediction:
+    """Stage 1: LLM extraction of institution + country from raw affiliation."""
+
+    row_id: int | str
+    institution_name: str | None
+    country_code: str | None
+    confidence: float
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "InstitutionPrediction":
+        cc = _to_str_or_none(d.get("country_code"))
+        return cls(
+            row_id=_coerce_row_id(d.get("row_id", 0)),
+            institution_name=_to_str_or_none(d.get("institution_name")),
+            country_code=cc.upper() if cc else None,
+            confidence=float(d.get("confidence") or 0.0),
+        )
+
+    @classmethod
+    def from_pydantic(cls, item: "InstitutionPredictionItem") -> "InstitutionPrediction":
+        cc = _to_str_or_none(item.country_code)
+        return cls(
+            row_id=_coerce_row_id(item.row_id),
+            institution_name=_to_str_or_none(item.institution_name),
+            country_code=cc.upper() if cc else None,
+            confidence=float(item.confidence or 0.0),
+        )
+
+
+@dataclass
+class CountryPrediction:
+    """Stage 3: LLM inference of country from raw affiliation only.
+
+    Stage 2 reuses this class with ``row_id`` carrying an institution_id
+    string instead of an integer; Stage 3 uses ints. Hence ``int | str``.
+    """
+
+    row_id: int | str
+    country_code: str | None
+    status: str
+    confidence: float
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "CountryPrediction":
+        cc = _to_str_or_none(d.get("country_code"))
+        return cls(
+            row_id=_coerce_row_id(d.get("row_id", 0)),
+            country_code=cc.upper() if cc else None,
+            status=(_to_str_or_none(d.get("status")) or "none").lower(),
+            confidence=float(d.get("confidence") or 0.0),
+        )
+
+    @classmethod
+    def from_pydantic(cls, item: "CountryPredictionItem") -> "CountryPrediction":
+        cc = _to_str_or_none(item.country_code)
+        return cls(
+            row_id=_coerce_row_id(item.row_id),
+            country_code=cc.upper() if cc else None,
+            status=(_to_str_or_none(item.status) or "none").lower(),
+            confidence=float(item.confidence or 0.0),
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pydantic batch-response schemas for langchain .with_structured_output(...)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class InstitutionPredictionItem(BaseModel):
+    row_id: int | str = Field(description="Echo of the input row_id (int or string)")
+    institution_name: str | None = Field(
+        default=None,
+        description="Primary institution name (university, lab, company); no department or address",
+    )
+    country_code: str | None = Field(
+        default=None, description="ISO-3166-1 alpha-2, or null if unknown"
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class InstitutionPredictionResponse(BaseModel):
+    predictions: list[InstitutionPredictionItem]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_incomplete(cls, data: Any) -> Any:
+        if isinstance(data, dict) and isinstance(data.get("predictions"), list):
+            data["predictions"] = [
+                p for p in data["predictions"]
+                if isinstance(p, dict) and p.get("row_id") is not None
+            ]
+        return data
+
+
+class CountryPredictionItem(BaseModel):
+    row_id: int | str = Field(description="Echo of the input row_id (int for stages 1+3, string institution_id for stage 2)")
+    country_code: str | None = Field(
+        default=None, description="ISO-3166-1 alpha-2, or null if unknown"
+    )
+    status: str = Field(
+        default="none",
+        description="One of: unambiguous, ambiguous, none",
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class CountryPredictionResponse(BaseModel):
+    predictions: list[CountryPredictionItem]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_incomplete(cls, data: Any) -> Any:
+        if isinstance(data, dict) and isinstance(data.get("predictions"), list):
+            data["predictions"] = [
+                p for p in data["predictions"]
+                if isinstance(p, dict) and p.get("row_id") is not None
+            ]
+        return data
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Embedding-based institution matcher (Stage 1 dedup)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class InstitutionRecord:
+    id: str
+    display_name: str
+    country_code: str | None
+
+
+@dataclass(frozen=True)
+class InstitutionMatch:
+    institution_id: str
+    display_name: str
+    country_code: str | None
+    score: float
+
+
+def synthetic_institution_id(name: str) -> str:
+    """Stable synthetic ID for institutions we create from raw affiliations.
+
+    SHA1 over normalized name → first 10 hex chars, prefixed ``IMP_``.
+    Idempotent: same name always yields same ID, so re-runs don't duplicate.
+    """
+    norm = re.sub(r"\s+", " ", (name or "").strip().lower())
+    digest = hashlib.sha1(norm.encode("utf-8")).hexdigest()[:10]
+    return f"IMP_{digest}"
+
+
+class InstitutionMatcher:
+    """Embedding-based fuzzy matcher.
+
+    Loads sentence-transformers lazily (heavy import) so CLI commands that
+    don't need imputation start fast.
+    """
+
+    DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+    DEFAULT_CACHE_PATH = Path("data/cache/institution_embeddings.pt")
+
+    def __init__(self, model_name: str = DEFAULT_MODEL):
+        self.model_name = model_name
+        self._model = None
+        self.records: list[InstitutionRecord] = []
+        self._embeddings = None
+
+    def _load_model(self):
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer  # heavy
+            self._model = SentenceTransformer(self.model_name)
+        return self._model
+
+    def index(self, records: list[InstitutionRecord]) -> None:
+        self.records = records
+        if not records:
+            self._embeddings = None
+            return
+        model = self._load_model()
+        names = [r.display_name for r in records]
+        cache_path = self.DEFAULT_CACHE_PATH
+        fingerprint_path = cache_path.with_suffix(".sha1")
+        fingerprint = hashlib.sha1(
+            "\n".join(f"{r.id}\t{r.display_name}\t{r.country_code or ''}" for r in records).encode("utf-8")
+        ).hexdigest()
+
+        loaded = False
+        try:
+            if cache_path.exists() and fingerprint_path.exists():
+                cached_fingerprint = fingerprint_path.read_text(encoding="utf-8").strip()
+                if cached_fingerprint == fingerprint:
+                    import torch
+
+                    cached = torch.load(cache_path, map_location="cpu")
+                    if hasattr(cached, "shape") and int(cached.shape[0]) == len(records):
+                        # Move to the model's device so cosine-sim doesn't
+                        # straddle CPU vs MPS/CUDA when the query is encoded
+                        # on accelerator.
+                        target_device = getattr(model, "device", None)
+                        if target_device is not None:
+                            cached = cached.to(target_device)
+                        self._embeddings = cached
+                        loaded = True
+        except (OSError, RuntimeError, ValueError):
+            loaded = False
+
+        if loaded:
+            return
+
+        self._embeddings = model.encode(
+            names, convert_to_tensor=True, show_progress_bar=False, normalize_embeddings=True
+        )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            import torch
+
+            to_save = self._embeddings.detach().cpu()
+            torch.save(to_save, cache_path)
+            fingerprint_path.write_text(fingerprint, encoding="utf-8")
+        except (OSError, RuntimeError, ValueError):
+            # Cache write failures should not block imputation.
+            return
+
+    def find_match(self, query: str, threshold: float = 0.78) -> InstitutionMatch | None:
+        candidates = self.top_k(query, k=1)
+        if not candidates:
+            return None
+        best = candidates[0]
+        return best if best.score >= threshold else None
+
+    def top_k(self, query: str, k: int = 3) -> list[InstitutionMatch]:
+        if not self.records or self._embeddings is None or not query:
+            return []
+        from sentence_transformers import util  # heavy
+        model = self._load_model()
+        query_emb = model.encode(
+            [query], convert_to_tensor=True, show_progress_bar=False, normalize_embeddings=True
+        )
+        scores = util.cos_sim(query_emb, self._embeddings)[0]
+        k = min(k, len(self.records))
+        topk = scores.topk(k)
+        return [
+            InstitutionMatch(
+                institution_id=self.records[int(i)].id,
+                display_name=self.records[int(i)].display_name,
+                country_code=self.records[int(i)].country_code,
+                score=float(scores[int(i)]),
+            )
+            for i in topk.indices.tolist()
+        ]
