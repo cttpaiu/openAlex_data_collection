@@ -226,27 +226,43 @@ def _run_batches_concurrently(
     query_async,
     on_result,
 ) -> None:
-    """Run async LLM batch queries with bounded concurrency and completion-order callbacks."""
+    """Run async LLM batch queries with bounded concurrency.
+
+    Uses a producer/consumer pattern: a single input queue feeds N=concurrency
+    long-lived worker coroutines, and results land on an output queue so
+    callbacks fire in completion order (not submission order). Only
+    ``concurrency`` in-flight coroutines exist at any moment instead of one
+    per batch — keeps memory bounded for stages with thousands of batches.
+    """
     concurrency = max(1, llm_concurrency)
 
     async def _runner() -> None:
-        sem = asyncio.Semaphore(concurrency)
+        input_q: asyncio.Queue = asyncio.Queue()
+        output_q: asyncio.Queue = asyncio.Queue()
+        for batch_no, chunk in enumerate(batches, start=1):
+            input_q.put_nowait((batch_no, chunk))
+        for _ in range(concurrency):
+            input_q.put_nowait(None)  # sentinel per worker
 
-        async def _run_one(batch_no: int, chunk: list[Any]):
-            async with sem:
+        async def _worker() -> None:
+            while True:
+                item = await input_q.get()
+                if item is None:
+                    return
+                batch_no, chunk = item
                 try:
                     predictions = await query_async(batch_no, chunk)
-                    return batch_no, chunk, predictions, None
+                    await output_q.put((batch_no, chunk, predictions, None))
                 except Exception as exc:
-                    return batch_no, chunk, [], str(exc)
+                    await output_q.put((batch_no, chunk, [], str(exc)))
 
-        tasks = [
-            asyncio.create_task(_run_one(batch_no, chunk))
-            for batch_no, chunk in enumerate(batches, start=1)
-        ]
-        for fut in asyncio.as_completed(tasks):
-            batch_no, chunk, predictions, failed = await fut
-            on_result(batch_no, chunk, predictions, failed)
+        workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
+        try:
+            for _ in range(len(batches)):
+                batch_no, chunk, predictions, failed = await output_q.get()
+                on_result(batch_no, chunk, predictions, failed)
+        finally:
+            await asyncio.gather(*workers, return_exceptions=True)
 
     asyncio.run(_runner())
 
