@@ -154,9 +154,53 @@ def test_find_pdf_url_unpaywall_falls_through_to_other_locations():
     assert src == "unpaywall"
 
 
+def test_find_pdf_url_openalex_best_oa_location():
+    session = _session_returning(
+        # First call (unpaywall) → empty
+        _FakeResp(json_payload={"best_oa_location": {}, "oa_locations": []}),
+        # Second call (openalex) → has best_oa_location.pdf_url
+        _FakeResp(json_payload={
+            "best_oa_location": {"pdf_url": "https://arxiv.org/pdf/9999.99.pdf"},
+            "primary_location": {"pdf_url": "https://publisher.example/x.pdf"},
+        }),
+    )
+    url, src = asyncio.run(
+        find_pdf_url(session, "10.1234/foo", "me@example.com")
+    )
+    assert url == "https://arxiv.org/pdf/9999.99.pdf"
+    assert src == "openalex"
+
+
+def test_find_pdf_url_openalex_falls_through_to_primary_location():
+    session = _session_returning(
+        _FakeResp(json_payload={
+            "best_oa_location": {"pdf_url": None},
+            "primary_location": {"pdf_url": "https://publisher.example/x.pdf"},
+        }),
+    )
+    url, src = asyncio.run(
+        find_pdf_url(session, "10.1234/foo", "me@example.com",
+                     sources=("openalex",))
+    )
+    assert url == "https://publisher.example/x.pdf"
+    assert src == "openalex"
+
+
+def test_find_pdf_url_openalex_http_error_skips():
+    session = _session_returning(_FakeResp(status=404))
+    url, src = asyncio.run(
+        find_pdf_url(session, "10.1234/foo", "me@example.com",
+                     sources=("openalex",))
+    )
+    assert (url, src) == (None, None)
+
+
 def test_find_pdf_url_falls_back_to_arxiv_for_arxiv_dois():
     session = _session_returning(
-        _FakeResp(json_payload={"best_oa_location": {}, "oa_locations": []})
+        # unpaywall: empty
+        _FakeResp(json_payload={"best_oa_location": {}, "oa_locations": []}),
+        # openalex: empty
+        _FakeResp(json_payload={"best_oa_location": {}, "primary_location": {}}),
     )
     url, src = asyncio.run(
         find_pdf_url(session, "10.48550/arXiv.1706.07415", "me@example.com")
@@ -167,7 +211,10 @@ def test_find_pdf_url_falls_back_to_arxiv_for_arxiv_dois():
 
 def test_find_pdf_url_returns_none_when_no_source_matches():
     session = _session_returning(
-        _FakeResp(json_payload={"best_oa_location": {}, "oa_locations": []})
+        # unpaywall: empty
+        _FakeResp(json_payload={"best_oa_location": {}, "oa_locations": []}),
+        # openalex: empty
+        _FakeResp(json_payload={"best_oa_location": {}, "primary_location": {}}),
     )
     url, src = asyncio.run(
         find_pdf_url(session, "10.1038/foo", "me@example.com")

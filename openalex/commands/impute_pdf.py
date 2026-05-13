@@ -51,11 +51,11 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 def _parse_sources(raw: str) -> tuple[str, ...]:
     items = [s.strip().lower() for s in raw.split(",") if s.strip()]
-    allowed = {"unpaywall", "arxiv"}
+    allowed = {"unpaywall", "openalex", "arxiv"}
     bad = [s for s in items if s not in allowed]
     if bad:
         raise click.BadParameter(f"unknown source(s): {bad}; allowed: {sorted(allowed)}")
-    return tuple(items) or ("unpaywall", "arxiv")
+    return tuple(items) or ("unpaywall", "openalex", "arxiv")
 
 
 def _load_eligible_papers(con, limit: int | None) -> list[tuple[str, str]]:
@@ -303,8 +303,8 @@ def _flush_pdf_paper(
 @click.option("--db", "db_path", default=None, help="Path to DuckDB file")
 @click.option("--dry-run", is_flag=True, help="Preview without DB writes")
 @click.option("--limit", type=int, default=None, help="Cap eligible papers")
-@click.option("--source", "source_csv", default="unpaywall,arxiv", show_default=True,
-              help="Comma-separated PDF source order (unpaywall, arxiv)")
+@click.option("--source", "source_csv", default="unpaywall,openalex,arxiv", show_default=True,
+              help="Comma-separated PDF source order (unpaywall, openalex, arxiv)")
 @click.option("--concurrent-downloads", type=int, default=4, show_default=True)
 @click.option("--max-pdf-mb", type=int, default=30, show_default=True)
 @click.option("--cache-dir", default=str(DEFAULT_PDF_CACHE), show_default=True)
@@ -444,6 +444,7 @@ async def _run_pdf_pass(
     stats: dict[str, int] = {
         "papers_eligible": len(candidates),
         "url_found_unpaywall": 0,
+        "url_found_openalex": 0,
         "url_found_arxiv": 0,
         "url_missing": 0,
         "downloaded": 0,
@@ -561,6 +562,8 @@ async def _run_pdf_pass(
                     src = outcome.get("source")
                     if src == "unpaywall":
                         stats["url_found_unpaywall"] += 1
+                    elif src == "openalex":
+                        stats["url_found_openalex"] += 1
                     elif src == "arxiv":
                         stats["url_found_arxiv"] += 1
                     else:

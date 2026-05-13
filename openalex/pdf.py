@@ -25,6 +25,7 @@ from typing import Any
 import aiohttp
 
 UNPAYWALL_URL = "https://api.unpaywall.org/v2/{doi}"
+OPENALEX_DOI_URL = "https://api.openalex.org/works/doi:{doi}"
 ARXIV_DOI_PREFIX = "10.48550/arxiv."
 
 
@@ -49,26 +50,66 @@ async def find_pdf_url(
     session: aiohttp.ClientSession,
     doi: str,
     email: str,
-    sources: tuple[str, ...] = ("unpaywall", "arxiv"),
+    sources: tuple[str, ...] = ("unpaywall", "openalex", "arxiv"),
 ) -> tuple[str | None, str | None]:
     """Resolve a DOI to a downloadable PDF URL.
 
-    Returns ``(url, source)`` where source is ``"unpaywall"`` or ``"arxiv"``,
-    or ``(None, None)`` when no source returned a URL.
+    Tries each source in the order given. Returns ``(url, source)`` or
+    ``(None, None)``. Supported sources: ``"unpaywall"``, ``"openalex"``,
+    ``"arxiv"``.
     """
     normalized = _normalize_doi(doi)
 
-    if "unpaywall" in sources:
-        url = await _unpaywall_pdf_url(session, normalized, email)
-        if url:
-            return url, "unpaywall"
-
-    if "arxiv" in sources:
-        arxiv_id = _arxiv_id_from_doi(normalized)
-        if arxiv_id:
-            return f"https://arxiv.org/pdf/{arxiv_id}.pdf", "arxiv"
+    for source in sources:
+        if source == "unpaywall":
+            url = await _unpaywall_pdf_url(session, normalized, email)
+            if url:
+                return url, "unpaywall"
+        elif source == "openalex":
+            url = await _openalex_pdf_url(session, normalized, email)
+            if url:
+                return url, "openalex"
+        elif source == "arxiv":
+            arxiv_id = _arxiv_id_from_doi(normalized)
+            if arxiv_id:
+                return f"https://arxiv.org/pdf/{arxiv_id}.pdf", "arxiv"
 
     return None, None
+
+
+async def _openalex_pdf_url(
+    session: aiohttp.ClientSession, doi: str, email: str
+) -> str | None:
+    """Return an OpenAlex-known PDF URL for the DOI, or None.
+
+    Reads ``best_oa_location.pdf_url`` first (most likely arXiv preprint
+    mirror), then falls back to ``primary_location.pdf_url`` and any other
+    ``locations[].pdf_url``.
+    """
+    url = OPENALEX_DOI_URL.format(doi=doi)
+    headers = {"User-Agent": f"openalex-data-collection/0.1.0 (mailto:{email})"}
+    try:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                return None
+            payload = await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        return None
+
+    best = payload.get("best_oa_location") or {}
+    pdf = best.get("pdf_url")
+    if pdf:
+        return pdf
+
+    primary = payload.get("primary_location") or {}
+    pdf = primary.get("pdf_url")
+    if pdf:
+        return pdf
+
+    for loc in payload.get("locations") or []:
+        if isinstance(loc, dict) and loc.get("pdf_url"):
+            return loc["pdf_url"]
+    return None
 
 
 async def _unpaywall_pdf_url(
