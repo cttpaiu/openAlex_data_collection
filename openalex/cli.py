@@ -13,6 +13,7 @@ from openalex.commands.check_db import check_db_command
 from openalex.commands.enrich_crossref import enrich_crossref_command
 from openalex.commands.impute_affiliation import impute_affiliation_command
 from openalex.commands.impute_pdf import impute_pdf_command
+from openalex.commands.import_wos import import_wos_command
 from openalex.commands.export import export_format_command
 from openalex.commands.validate import validate_command
 
@@ -35,7 +36,8 @@ def cli() -> None:
       9. openalex download              Download all papers → JSONL
      10. openalex convert-to-db         JSONL → DuckDB
      11. openalex check-db              Paper-centric coverage health report
-     12. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
+     12. openalex import-wos            Import per-country Web of Science Excel exports
+     13. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
 
     \b
     Imputation sources (pick one):
@@ -67,6 +69,7 @@ cli.add_command(sample_command)
 cli.add_command(download_command)
 cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
+cli.add_command(import_wos_command)
 cli.add_command(export_format_command)
 
 # Unified imputation subgroup. Names come from each command's own decorator
