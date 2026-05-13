@@ -201,6 +201,117 @@ def enrich_crossref_command(
         con.close()
 
 
+def _load_target_rows(con, paper_id: str) -> list[dict[str, Any]]:
+    """All contribution rows for a paper (for 1:1 matching against CrossRef).
+
+    Matching needs the *full* author roster; filtering to rows still needing
+    raw_affiliation_string happens at write time (COALESCE in the UPDATE
+    plus a WHERE-still-NULL guard).
+    """
+    rows = con.execute(
+        """
+        SELECT c.row_id, c.author_id, c.author_position, a.orcid,
+               c.raw_affiliation_string, c.institution_id
+        FROM contributions c
+        LEFT JOIN authors a ON a.id = c.author_id
+        WHERE c.paper_id = ?
+        ORDER BY c.row_id
+        """,
+        [paper_id],
+    ).fetchall()
+    return [
+        {
+            "row_id": r[0],
+            "author_id": r[1],
+            "author_position": r[2],
+            "orcid": (r[3] or "").strip() or None,
+            "has_raw_aff": bool(r[4] and r[4].strip()),
+            "has_institution": r[5] is not None,
+        }
+        for r in rows
+    ]
+
+
+def _match_authors(
+    crossref_authors: list[dict[str, Any]],
+    target_rows: list[dict[str, Any]],
+) -> tuple[list[tuple[dict, dict, str]], dict[str, int]]:
+    """Return list of (target_row, crossref_author, match_method) plus stats.
+
+    Match path: ORCID first, fall back to position index iff list lengths
+    match (so we don't pair the wrong authors when CrossRef includes
+    corrigenda/extra entries).
+    """
+    s = {"matched_by_orcid": 0, "matched_by_position": 0, "unmatched_author": 0, "author_count_mismatch": 0}
+    matched: list[tuple[dict, dict, str]] = []
+
+    # ORCID pass
+    cr_by_orcid = {a["orcid"]: a for a in crossref_authors if a.get("orcid")}
+    remaining_targets = []
+    remaining_cr = list(crossref_authors)
+    for t in target_rows:
+        if t["orcid"] and t["orcid"] in cr_by_orcid:
+            cr = cr_by_orcid[t["orcid"]]
+            matched.append((t, cr, "crossref orcid"))
+            s["matched_by_orcid"] += 1
+            if cr in remaining_cr:
+                remaining_cr.remove(cr)
+        else:
+            remaining_targets.append(t)
+
+    # Position-index pass — only if list lengths line up
+    if remaining_targets and remaining_cr:
+        if len(remaining_targets) == len(remaining_cr):
+            for idx, t in enumerate(remaining_targets):
+                cr = remaining_cr[idx]
+                matched.append((t, cr, f"crossref position[{idx}]"))
+                s["matched_by_position"] += 1
+        else:
+            s["author_count_mismatch"] += len(remaining_targets)
+
+    return matched, s
+
+
+def _flush_paper(
+    con,
+    paper_id: str,
+    matched: list[tuple[dict, dict, str]],
+) -> int:
+    """Write raw_affiliation_string for one paper's matched rows; commit."""
+    written = 0
+    audit_rows: list[dict[str, Any]] = []
+    for target, cr_author, method in matched:
+        affs = cr_author.get("affiliation_strings") or []
+        if not affs:
+            continue
+        raw = " | ".join(a for a in affs if a)
+        if not raw:
+            continue
+        con.execute(
+            """
+            UPDATE contributions
+            SET raw_affiliation_string = COALESCE(raw_affiliation_string, ?)
+            WHERE row_id = ?
+              AND (raw_affiliation_string IS NULL OR TRIM(raw_affiliation_string) = '')
+            """,
+            [raw, target["row_id"]],
+        )
+        audit_rows.append({
+            "row_id": target["row_id"],
+            "paper_id": paper_id,
+            "country_code": None,
+            "matched_terms": method,
+            "raw_affiliation_string": raw,
+            "source": "crossref",
+            "confidence": 1.0,
+        })
+        written += 1
+    if audit_rows:
+        _insert_audit(con, audit_rows, stage="crossref")
+        con.commit()
+    return written
+
+
 async def _run_crossref_fetch(
     con,
     candidates: list[tuple[str, str]],
@@ -217,7 +328,11 @@ async def _run_crossref_fetch(
         "crossref_failed": 0,
         "papers_no_authors": 0,
         "papers_no_affiliations": 0,
-        "raw_aff_extracted": 0,
+        "matched_by_orcid": 0,
+        "matched_by_position": 0,
+        "author_count_mismatch": 0,
+        "raw_aff_populated": 0,
+        "papers_enriched": 0,
     }
 
     async with AsyncCrossRefClient(
@@ -248,11 +363,37 @@ async def _run_crossref_fetch(
                 stats["papers_no_authors"] += 1
                 continue
 
-            extracted = sum(1 for a in authors if a["affiliation_strings"])
-            if extracted == 0:
+            if not any(a["affiliation_strings"] for a in authors):
                 stats["papers_no_affiliations"] += 1
                 continue
-            stats["raw_aff_extracted"] += extracted
+
+            targets = _load_target_rows(con, paper_id)
+            if not targets:
+                # All eligible rows for this paper got filled by a prior run.
+                continue
+
+            matched, match_stats = _match_authors(authors, targets)
+            stats["matched_by_orcid"] += match_stats["matched_by_orcid"]
+            stats["matched_by_position"] += match_stats["matched_by_position"]
+            stats["author_count_mismatch"] += match_stats["author_count_mismatch"]
+
+            # Writable: matched row needs raw_affiliation_string AND CrossRef
+            # actually has affiliations for that author.
+            writable = [
+                (t, cr, m) for (t, cr, m) in matched
+                if cr.get("affiliation_strings") and not t["has_raw_aff"]
+            ]
+            if not writable:
+                continue
+
+            if dry_run:
+                stats["raw_aff_populated"] += len(writable)
+                stats["papers_enriched"] += 1
+            else:
+                written = _flush_paper(con, paper_id, writable)
+                stats["raw_aff_populated"] += written
+                if written:
+                    stats["papers_enriched"] += 1
 
     return stats
 
