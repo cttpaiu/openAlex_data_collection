@@ -24,6 +24,7 @@ from rich.console import Console
 from rich.table import Table
 
 from openalex.commands.impute_affiliation import (
+    _StageProgress,
     _ensure_audit_table,
     _insert_audit,
     _resolve_db_path,
@@ -346,54 +347,59 @@ async def _run_crossref_fetch(
             status, payload = await client.fetch_doi(normalized)
             return paper_id, status, payload
 
-        tasks = [asyncio.create_task(_one(pid, doi)) for pid, doi in candidates]
-        for fut in asyncio.as_completed(tasks):
-            paper_id, status, payload = await fut
+        total = len(candidates)
+        with _StageProgress(
+            f"enrich-crossref ({total:,} papers)", total, unit="paper"
+        ) as bar:
+            tasks = [asyncio.create_task(_one(pid, doi)) for pid, doi in candidates]
+            for fut in asyncio.as_completed(tasks):
+                paper_id, status, payload = await fut
+                outcome = "?"
 
-            if status == "not_found":
-                stats["crossref_not_found"] += 1
-                continue
-            if status == "failed":
-                stats["crossref_failed"] += 1
-                continue
+                if status == "not_found":
+                    stats["crossref_not_found"] += 1
+                    outcome = "404"
+                elif status == "failed":
+                    stats["crossref_failed"] += 1
+                    outcome = "[red]failed[/red]"
+                else:
+                    stats["crossref_fetched"] += 1
+                    authors = _parse_crossref_authors(payload or {})
+                    if not authors:
+                        stats["papers_no_authors"] += 1
+                        outcome = "no authors"
+                    elif not any(a["affiliation_strings"] for a in authors):
+                        stats["papers_no_affiliations"] += 1
+                        outcome = "no affs"
+                    else:
+                        targets = _load_target_rows(con, paper_id)
+                        if not targets:
+                            outcome = "already filled"
+                        else:
+                            matched, match_stats = _match_authors(authors, targets)
+                            stats["matched_by_orcid"] += match_stats["matched_by_orcid"]
+                            stats["matched_by_position"] += match_stats["matched_by_position"]
+                            stats["author_count_mismatch"] += match_stats["author_count_mismatch"]
 
-            stats["crossref_fetched"] += 1
-            authors = _parse_crossref_authors(payload or {})
-            if not authors:
-                stats["papers_no_authors"] += 1
-                continue
+                            writable = [
+                                (t, cr, m) for (t, cr, m) in matched
+                                if cr.get("affiliation_strings") and not t["has_raw_aff"]
+                            ]
+                            if not writable:
+                                outcome = "no writable rows"
+                            elif dry_run:
+                                stats["raw_aff_populated"] += len(writable)
+                                stats["papers_enriched"] += 1
+                                outcome = f"[green]dry: +{len(writable)} rows[/green]"
+                            else:
+                                written = _flush_paper(con, paper_id, writable)
+                                stats["raw_aff_populated"] += written
+                                if written:
+                                    stats["papers_enriched"] += 1
+                                outcome = f"[green]+{written} rows[/green]"
 
-            if not any(a["affiliation_strings"] for a in authors):
-                stats["papers_no_affiliations"] += 1
-                continue
-
-            targets = _load_target_rows(con, paper_id)
-            if not targets:
-                # All eligible rows for this paper got filled by a prior run.
-                continue
-
-            matched, match_stats = _match_authors(authors, targets)
-            stats["matched_by_orcid"] += match_stats["matched_by_orcid"]
-            stats["matched_by_position"] += match_stats["matched_by_position"]
-            stats["author_count_mismatch"] += match_stats["author_count_mismatch"]
-
-            # Writable: matched row needs raw_affiliation_string AND CrossRef
-            # actually has affiliations for that author.
-            writable = [
-                (t, cr, m) for (t, cr, m) in matched
-                if cr.get("affiliation_strings") and not t["has_raw_aff"]
-            ]
-            if not writable:
-                continue
-
-            if dry_run:
-                stats["raw_aff_populated"] += len(writable)
-                stats["papers_enriched"] += 1
-            else:
-                written = _flush_paper(con, paper_id, writable)
-                stats["raw_aff_populated"] += written
-                if written:
-                    stats["papers_enriched"] += 1
+                bar.log(f"{paper_id} → {outcome}")
+                bar.advance()
 
     return stats
 
