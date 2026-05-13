@@ -12,6 +12,7 @@ from openalex.commands.database import convert_to_db_command
 from openalex.commands.check_db import check_db_command
 from openalex.commands.enrich_crossref import enrich_crossref_command
 from openalex.commands.impute_affiliation import impute_affiliation_command
+from openalex.commands.impute_pdf import impute_pdf_command
 from openalex.commands.export import export_format_command
 from openalex.commands.validate import validate_command
 
@@ -40,6 +41,7 @@ def cli() -> None:
     Imputation sources (pick one):
       openalex impute crossref          Restore raw_affiliation_string from CrossRef
       openalex impute llm               LLM-extract institution + country from raw affiliations
+      openalex impute pdf               Resolve PDF URL via Unpaywall/arXiv, download, extract page-1 text (LLM step pending)
     """
 
 
@@ -51,6 +53,7 @@ def impute_group() -> None:
     Sources:
       crossref   Pull raw_affiliation_string from CrossRef by DOI (fast, low yield).
       llm        Three-stage LLM pipeline over raw_affiliation_string.
+      pdf        Fetch the paper's PDF (Unpaywall/arXiv) and extract page-1 text into a cache. LLM extraction lands in a follow-up.
     """
 
 
@@ -71,6 +74,7 @@ cli.add_command(export_format_command)
 # consistently shows "openalex impute crossref" / "openalex impute llm".
 impute_group.add_command(enrich_crossref_command)
 impute_group.add_command(impute_affiliation_command)
+impute_group.add_command(impute_pdf_command)
 cli.add_command(impute_group)
 
 # Deprecation aliases — keep the old top-level names working for one release.
