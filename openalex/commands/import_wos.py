@@ -91,30 +91,33 @@ def _build_doi_index(con) -> dict[str, str]:
     return out
 
 
-def _build_title_index(con) -> dict[str, str]:
+def _build_title_index(con) -> dict[str, tuple[str, int | None]]:
+    """normalized title → (paper_id, publication_year)."""
     rows = con.execute(
-        "SELECT id, title FROM papers WHERE title IS NOT NULL AND TRIM(title) != ''"
+        "SELECT id, title, publication_year FROM papers "
+        "WHERE title IS NOT NULL AND TRIM(title) != ''"
     ).fetchall()
-    out: dict[str, str] = {}
-    for paper_id, title in rows:
+    out: dict[str, tuple[str, int | None]] = {}
+    for paper_id, title, year in rows:
         nt = normalize_title(title)
         if nt and nt not in out:  # first writer wins
-            out[nt] = paper_id
+            out[nt] = (paper_id, int(year) if year is not None else None)
     return out
 
 
 def _match_wos_to_paper(
     rec: WosRecord,
     doi_index: dict[str, str],
-    title_index: dict[str, str],
+    title_index: dict[str, tuple[str, int | None]],
     fuzzy_threshold: float,
     use_fuzzy: bool,
 ) -> tuple[str | None, str | None]:
     """Resolve a WoS record to an existing paper_id, or (None, None).
 
     Match path: DOI → exact-normalised title → fuzzy normalised title
-    (rapidfuzz token_set_ratio above threshold). The returned method
-    string carries the match path for audit / stats.
+    (rapidfuzz token_sort_ratio + length-ratio + year guard above
+    threshold). The returned method string carries the match path for
+    audit / stats.
     """
     if rec.doi_normalized:
         pid = doi_index.get(rec.doi_normalized)
@@ -122,23 +125,51 @@ def _match_wos_to_paper(
             return pid, "doi"
 
     if rec.title_normalized:
-        pid = title_index.get(rec.title_normalized)
-        if pid:
-            return pid, "title_exact"
+        hit = title_index.get(rec.title_normalized)
+        if hit:
+            return hit[0], "title_exact"
 
-        if use_fuzzy and title_index:
+        # Fuzzy guards (in addition to the score cutoff):
+        # * Require ≥ 30 chars to attempt fuzzy.
+        # * fuzz.token_sort_ratio (Levenshtein after sort; length-aware).
+        # * Length ratio ≥ 0.6 vs query.
+        # * Year diff ≤ 2 when both WoS and OpenAlex provide a year
+        #   (kills "same title, different paper" matches like
+        #   "He atoms in strong external fields" vs "Li atom in strong
+        #   external fields" published years apart).
+        if (
+            use_fuzzy
+            and title_index
+            and len(rec.title_normalized) >= 30
+        ):
             from rapidfuzz import fuzz, process
 
             cutoff = int(fuzzy_threshold * 100)
-            match = process.extractOne(
+            q_len = len(rec.title_normalized)
+            best_pid: str | None = None
+            best_score = 0
+            for matched_title, score, _ in process.extract(
                 rec.title_normalized,
                 title_index.keys(),
-                scorer=fuzz.token_set_ratio,
+                scorer=fuzz.token_sort_ratio,
                 score_cutoff=cutoff,
-            )
-            if match is not None:
-                matched_title, score, _ = match
-                return title_index[matched_title], f"title_fuzzy:{int(score)}"
+                limit=5,
+            ):
+                m_len = len(matched_title)
+                length_ratio = min(q_len, m_len) / max(q_len, m_len)
+                if length_ratio < 0.6:
+                    continue
+                pid, year = title_index[matched_title]
+                if (
+                    rec.publication_year is not None
+                    and year is not None
+                    and abs(rec.publication_year - year) > 2
+                ):
+                    continue
+                if score > best_score:
+                    best_pid, best_score = pid, score
+            if best_pid is not None:
+                return best_pid, f"title_fuzzy:{int(best_score)}"
 
     return None, None
 
@@ -305,7 +336,10 @@ def _process_file(
                 if rec.doi_normalized:
                     doi_index[rec.doi_normalized] = paper_id
                 if rec.title_normalized:
-                    title_index.setdefault(rec.title_normalized, paper_id)
+                    title_index.setdefault(
+                        rec.title_normalized,
+                        (paper_id, rec.publication_year),
+                    )
             else:
                 if method == "doi":
                     stats["matched_by_doi"] += 1
@@ -356,8 +390,8 @@ def _process_file(
               help="Cap number of country files (debug)")
 @click.option("--limit-rows-per-file", type=int, default=None,
               help="Cap rows per file (debug)")
-@click.option("--fuzzy-threshold", type=float, default=0.92, show_default=True,
-              help="Min token_set_ratio (0-1) for fuzzy title match")
+@click.option("--fuzzy-threshold", type=float, default=0.95, show_default=True,
+              help="Min token_sort_ratio (0-1) for fuzzy title match (year diff ≤ 2 also required)")
 @click.option("--no-fuzzy", is_flag=True,
               help="Disable fuzzy title matching; DOI + exact title only")
 @click.option("--only", "only_filename", default=None,
