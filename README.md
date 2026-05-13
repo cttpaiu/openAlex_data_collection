@@ -61,11 +61,15 @@ uv run openalex sample --size 385    # random validation sample
 # 8. Collect
 uv run openalex download             # download all → JSONL (~820 MB)
 uv run openalex convert-to-db        # JSONL → DuckDB
-uv run openalex check-db             # completeness health report
-uv run openalex impute-affiliation --dry-run   # preview country imputation from affiliations
-uv run openalex impute-affiliation --llm-fallback --llm-batch-size 20   # rule + batched LLM fallback
+uv run openalex check-db             # paper-centric coverage health report
+
+# 9. Impute missing institution/country
+uv run openalex impute --help                  # list imputation sources
+uv run openalex impute crossref                # restore raw_affiliation_string from CrossRef by DOI
+uv run openalex impute llm --dry-run           # preview LLM imputation over raw_affiliation_string
+uv run openalex impute llm --llm-fallback --llm-batch-size 20   # rule + batched LLM
 # optional provider override (otherwise read from config/collection.yml -> llm.*)
-uv run openalex impute-affiliation --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
+uv run openalex impute llm --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
 ```
 
 ## Commands
@@ -82,8 +86,11 @@ uv run openalex impute-affiliation --llm-fallback --llm-provider ollama --llm-mo
 | `openalex download` | Download all matching papers to JSONL |
 | `openalex convert-to-db` | Load JSONL into normalised DuckDB (5-table schema) |
 | `openalex check-db` | Paper-centric coverage health report |
-| `openalex impute-affiliation` | Impute missing `institution_id` and `country_code` from `raw_affiliation_string` (rule-first; LLM via langchain + ollama/groq) |
+| `openalex impute crossref` | Restore `raw_affiliation_string` from CrossRef via DOI lookup (HTTP only, no LLM) |
+| `openalex impute llm` | Impute missing `institution_id` and `country_code` from `raw_affiliation_string` (rule-first; LLM via langchain + ollama/groq) |
 | `openalex export-format` | Export to analysis CSVs *(coming soon)* |
+
+> The top-level `openalex enrich-crossref` and `openalex impute-affiliation` commands are kept as deprecation aliases of `openalex impute crossref` and `openalex impute llm` for one release.
 
 ## Config Files
 

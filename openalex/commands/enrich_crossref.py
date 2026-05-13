@@ -140,7 +140,7 @@ def _parse_crossref_authors(payload: dict) -> list[dict[str, Any]]:
     return parsed
 
 
-@click.command("enrich-crossref")
+@click.command("crossref")
 @click.option("--config", "config_path", default="config/collection.yml", show_default=True)
 @click.option("--db", "db_path", default=None, help="Path to DuckDB file")
 @click.option("--dry-run", is_flag=True, help="Preview without DB writes")

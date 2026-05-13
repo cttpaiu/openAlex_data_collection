@@ -80,7 +80,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@click.command("impute-affiliation")
+@click.command("llm")
 @click.option("--config", "config_path", default="config/collection.yml", show_default=True)
 @click.option("--db", "db_path", default=None, help="Path to DuckDB file")
 @click.option("--dry-run", is_flag=True, help="Show what would be updated without writing changes")

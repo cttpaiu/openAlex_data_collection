@@ -34,8 +34,23 @@ def cli() -> None:
       9. openalex download              Download all papers → JSONL
      10. openalex convert-to-db         JSONL → DuckDB
      11. openalex check-db              Paper-centric coverage health report
-     12. openalex enrich-crossref       Restore raw_affiliation_string from CrossRef (DOI lookup)
-     13. openalex impute-affiliation    Impute missing institution + country from raw affiliations
+     12. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
+
+    \b
+    Imputation sources (pick one):
+      openalex impute crossref          Restore raw_affiliation_string from CrossRef
+      openalex impute llm               LLM-extract institution + country from raw affiliations
+    """
+
+
+@click.group("impute")
+def impute_group() -> None:
+    """Imputation pipeline — pick a source for the missing institution/country data.
+
+    \b
+    Sources:
+      crossref   Pull raw_affiliation_string from CrossRef by DOI (fast, low yield).
+      llm        Three-stage LLM pipeline over raw_affiliation_string.
     """
 
 
@@ -49,6 +64,17 @@ cli.add_command(sample_command)
 cli.add_command(download_command)
 cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
-cli.add_command(enrich_crossref_command)
-cli.add_command(impute_affiliation_command)
 cli.add_command(export_format_command)
+
+# Unified imputation subgroup. Names come from each command's own decorator
+# (@click.command("crossref") / @click.command("llm")) so help/usage output
+# consistently shows "openalex impute crossref" / "openalex impute llm".
+impute_group.add_command(enrich_crossref_command)
+impute_group.add_command(impute_affiliation_command)
+cli.add_command(impute_group)
+
+# Deprecation aliases — keep the old top-level names working for one release.
+# Explicit name= override since the underlying commands now identify as
+# "crossref" / "llm".
+cli.add_command(enrich_crossref_command, name="enrich-crossref")
+cli.add_command(impute_affiliation_command, name="impute-affiliation")
