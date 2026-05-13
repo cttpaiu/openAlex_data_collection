@@ -138,6 +138,15 @@ def _add_paper_coverage_rows(con, table, total: int, pct) -> None:
         AND TRIM(c.raw_affiliation_string) != ''
     """)
     rows_dead = contribs_for_zero - rows_imputable
+    papers_with_doi = _q(con, """
+        SELECT COUNT(*) FROM papers p
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c
+            WHERE c.paper_id = p.id AND c.institution_id IS NOT NULL
+        )
+        AND p.doi IS NOT NULL AND TRIM(p.doi) != ''
+    """)
+    papers_without_doi = zero_total - papers_with_doi
 
     def pct_of(n, d):
         return f"{n / d * 100:.1f}%" if d else "-"
@@ -150,6 +159,8 @@ def _add_paper_coverage_rows(con, table, total: int, pct) -> None:
     table.add_row("     · rows with raw_affiliation (imputable)", f"{rows_imputable:,}", pct_of(rows_imputable, contribs_for_zero))
     table.add_row("     · rows without raw_affiliation (dead end)", f"{rows_dead:,}", pct_of(rows_dead, contribs_for_zero))
     table.add_row("  → papers with ≥1 imputable row", f"{papers_imputable:,}", pct_of(papers_imputable, zero_total))
+    table.add_row("  → papers with DOI (recoverable handle)", f"{papers_with_doi:,}", pct_of(papers_with_doi, zero_total))
+    table.add_row("  → papers without DOI", f"{papers_without_doi:,}", pct_of(papers_without_doi, zero_total))
 
     buckets = _partial_coverage_buckets(con)
     partial_total = sum(buckets.values())
