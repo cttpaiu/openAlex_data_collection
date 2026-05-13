@@ -11,6 +11,7 @@ from openalex.commands.download import download_command
 from openalex.commands.database import convert_to_db_command
 from openalex.commands.check_db import check_db_command
 from openalex.commands.impute_affiliation import impute_affiliation_command
+from openalex.commands.impute_coauthor import impute_coauthor_command
 from openalex.commands.export import export_format_command
 from openalex.commands.validate import validate_command
 
@@ -33,7 +34,8 @@ def cli() -> None:
       9. openalex download              Download all papers → JSONL
      10. openalex convert-to-db         JSONL → DuckDB
      11. openalex check-db              Completeness health report
-     12. openalex impute-affiliation    Impute missing institution + country from raw affiliations
+     12. openalex impute-coauthor       Cheap pass: fill missing institution from author dominance
+     13. openalex impute-affiliation    LLM pass: impute missing institution + country from raw affiliations
     """
 
 
@@ -47,5 +49,6 @@ cli.add_command(sample_command)
 cli.add_command(download_command)
 cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
+cli.add_command(impute_coauthor_command)
 cli.add_command(impute_affiliation_command)
 cli.add_command(export_format_command)
