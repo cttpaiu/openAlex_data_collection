@@ -33,7 +33,7 @@ def cli() -> None:
       8. openalex sample --size 385     Random validation sample
       9. openalex download              Download all papers → JSONL
      10. openalex convert-to-db         JSONL → DuckDB
-     11. openalex check-db              Completeness health report
+     11. openalex check-db              Paper-centric coverage health report
      12. openalex enrich-crossref       Restore raw_affiliation_string from CrossRef (DOI lookup)
      13. openalex impute-affiliation    Impute missing institution + country from raw affiliations
     """
