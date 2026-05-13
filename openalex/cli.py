@@ -41,7 +41,7 @@ def cli() -> None:
     Imputation sources (pick one):
       openalex impute crossref          Restore raw_affiliation_string from CrossRef
       openalex impute llm               LLM-extract institution + country from raw affiliations
-      openalex impute pdf               Download paper PDF and LLM-extract authors+affiliations
+      openalex impute pdf               Resolve PDF URL via Unpaywall/arXiv, download, extract page-1 text (LLM step pending)
     """
 
 
@@ -53,7 +53,7 @@ def impute_group() -> None:
     Sources:
       crossref   Pull raw_affiliation_string from CrossRef by DOI (fast, low yield).
       llm        Three-stage LLM pipeline over raw_affiliation_string.
-      pdf        Fetch the paper's PDF (Unpaywall/arXiv), extract page-1 text, LLM-extract authors.
+      pdf        Fetch the paper's PDF (Unpaywall/arXiv) and extract page-1 text into a cache. LLM extraction lands in a follow-up.
     """
 
 

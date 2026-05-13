@@ -137,11 +137,11 @@ def impute_pdf_command(
                 request_timeout=request_timeout,
             )
         )
-        _print_summary(stats, dry_run=True)
+        _print_summary(stats, dry_run=dry_run)
         if not dry_run:
             console.print(
-                "[yellow]Note:[/yellow] P3 only does URL/download/text. "
-                "DB writes land in P4."
+                "[yellow]Note:[/yellow] this build only does URL/download/text. "
+                "LLM extraction and DB writes land in the next commit."
             )
     finally:
         con.close()
@@ -179,92 +179,113 @@ async def _run_pdf_pass(
     }
     timeout = aiohttp.ClientTimeout(total=request_timeout)
     connector = aiohttp.TCPConnector(limit=concurrency * 2)
-    sem = asyncio.Semaphore(max(1, concurrency))
 
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     async with aiohttp.ClientSession(
         headers=headers, timeout=timeout, connector=connector
     ) as session:
-        async def _one(paper_id: str, doi: str) -> tuple[str, dict[str, Any]]:
+        async def _process(paper_id: str, doi: str) -> tuple[str, dict[str, Any]]:
+            """Resolve URL, download to cache, extract page-1 text."""
             outcome: dict[str, Any] = {"paper_id": paper_id, "doi": doi}
-            async with sem:
-                url, src = await find_pdf_url(session, doi, email, sources)
-                outcome["url"], outcome["source"] = url, src
-                if not url:
-                    return paper_id, outcome
-                # Check cache hit before downloading.
-                from openalex.pdf import _cache_path
-                cached = _cache_path(doi, cache_dir)
-                cached_before = cached.exists() and not skip_cache
-                path, err = await download_pdf(
-                    session, url, doi, cache_dir,
-                    max_bytes=max_bytes, skip_cache=skip_cache,
-                )
-                outcome["path"] = str(path) if path else None
-                outcome["err"] = err
-                outcome["cache_hit"] = cached_before and path is not None and err is None
-                if path and not err:
-                    text = extract_first_page_text(path)
-                    outcome["text_chars"] = len(text)
-                    outcome["text_empty"] = not bool(text)
+            url, src = await find_pdf_url(session, doi, email, sources)
+            outcome["url"], outcome["source"] = url, src
+            if not url:
                 return paper_id, outcome
+            from openalex.pdf import _cache_path
+            cached = _cache_path(doi, cache_dir)
+            cached_before = cached.exists() and not skip_cache
+            path, err = await download_pdf(
+                session, url, doi, cache_dir,
+                max_bytes=max_bytes, skip_cache=skip_cache,
+            )
+            outcome["path"] = str(path) if path else None
+            outcome["err"] = err
+            outcome["cache_hit"] = cached_before and path is not None and err is None
+            if path and not err:
+                text = extract_first_page_text(path)
+                outcome["text_chars"] = len(text)
+                outcome["text_empty"] = not bool(text)
+            return paper_id, outcome
+
+        # Bounded worker pool (producer/consumer): only `concurrency`
+        # coroutines exist at any moment, not one per candidate.
+        input_q: asyncio.Queue = asyncio.Queue()
+        output_q: asyncio.Queue = asyncio.Queue()
+        for pid, doi in candidates:
+            input_q.put_nowait((pid, doi))
+        for _ in range(max(1, concurrency)):
+            input_q.put_nowait(None)
+
+        async def _worker() -> None:
+            while True:
+                item = await input_q.get()
+                if item is None:
+                    return
+                pid, doi = item
+                try:
+                    result = await _process(pid, doi)
+                except Exception as exc:
+                    result = (pid, {"paper_id": pid, "doi": doi, "err": f"crash:{exc}"})
+                await output_q.put(result)
 
         with _StageProgress(
             f"impute pdf — URL+download+text ({len(candidates):,} papers)",
             len(candidates),
             unit="paper",
         ) as bar:
-            tasks = [
-                asyncio.create_task(_one(pid, doi)) for pid, doi in candidates
+            workers = [
+                asyncio.create_task(_worker())
+                for _ in range(max(1, concurrency))
             ]
-            for fut in asyncio.as_completed(tasks):
-                paper_id, outcome = await fut
-                src = outcome.get("source")
-                if src == "unpaywall":
-                    stats["url_found_unpaywall"] += 1
-                elif src == "arxiv":
-                    stats["url_found_arxiv"] += 1
-                else:
-                    stats["url_missing"] += 1
-                    bar.log(f"{paper_id} → no PDF URL")
+            try:
+                for _ in range(len(candidates)):
+                    paper_id, outcome = await output_q.get()
+                    src = outcome.get("source")
+                    if src == "unpaywall":
+                        stats["url_found_unpaywall"] += 1
+                    elif src == "arxiv":
+                        stats["url_found_arxiv"] += 1
+                    else:
+                        stats["url_missing"] += 1
+                        bar.log(f"{paper_id} → no PDF URL")
+                        bar.advance()
+                        continue
+
+                    err = outcome.get("err")
+                    if err == "too_large":
+                        stats["download_too_large"] += 1
+                        bar.log(f"{paper_id} → [yellow]too large[/yellow]")
+                        bar.advance(); continue
+                    if err == "not_pdf":
+                        stats["download_not_pdf"] += 1
+                        bar.log(f"{paper_id} → [yellow]not PDF[/yellow]")
+                        bar.advance(); continue
+                    if err and err.startswith("http_"):
+                        stats["download_failed_http"] += 1
+                        bar.log(f"{paper_id} → [red]{err}[/red]")
+                        bar.advance(); continue
+                    if err == "network":
+                        stats["download_failed_network"] += 1
+                        bar.log(f"{paper_id} → [red]network[/red]")
+                        bar.advance(); continue
+
+                    if outcome.get("cache_hit"):
+                        stats["download_cached_hit"] += 1
+                    else:
+                        stats["downloaded"] += 1
+
+                    chars = int(outcome.get("text_chars", 0))
+                    if outcome.get("text_empty"):
+                        stats["text_empty"] += 1
+                        bar.log(f"{paper_id} → [yellow]no text layer[/yellow]")
+                    else:
+                        stats["text_extracted"] += 1
+                        stats["chars_total"] += chars
+                        bar.log(f"{paper_id} → {src}, {chars} chars")
                     bar.advance()
-                    continue
-
-                err = outcome.get("err")
-                if err == "too_large":
-                    stats["download_too_large"] += 1
-                    bar.log(f"{paper_id} → [yellow]too large[/yellow]")
-                    bar.advance(); continue
-                if err == "not_pdf":
-                    stats["download_not_pdf"] += 1
-                    bar.log(f"{paper_id} → [yellow]not PDF[/yellow]")
-                    bar.advance(); continue
-                if err and err.startswith("http_"):
-                    stats["download_failed_http"] += 1
-                    bar.log(f"{paper_id} → [red]{err}[/red]")
-                    bar.advance(); continue
-                if err == "network":
-                    stats["download_failed_network"] += 1
-                    bar.log(f"{paper_id} → [red]network[/red]")
-                    bar.advance(); continue
-
-                if outcome.get("cache_hit"):
-                    stats["download_cached_hit"] += 1
-                else:
-                    stats["downloaded"] += 1
-
-                chars = int(outcome.get("text_chars", 0))
-                if outcome.get("text_empty"):
-                    stats["text_empty"] += 1
-                    bar.log(f"{paper_id} → [yellow]no text layer[/yellow]")
-                else:
-                    stats["text_extracted"] += 1
-                    stats["chars_total"] += chars
-                    bar.log(
-                        f"{paper_id} → {src}, {chars} chars"
-                    )
-                bar.advance()
+            finally:
+                await asyncio.gather(*workers, return_exceptions=True)
 
     return stats
 
@@ -278,5 +299,5 @@ def _print_summary(stats: dict[str, int], dry_run: bool) -> None:
     if stats["text_extracted"]:
         avg = stats["chars_total"] // stats["text_extracted"]
         table.add_row("avg chars per page-1", f"{avg:,}")
-    table.add_row("mode", "dry-run (P3)")
+    table.add_row("mode", "dry-run" if dry_run else "apply (URL+text only)")
     console.print(table)
