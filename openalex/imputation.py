@@ -260,6 +260,39 @@ class CountryPredictionResponse(BaseModel):
         return data
 
 
+class PdfAuthorItem(BaseModel):
+    """One author extracted from a PDF first-page text block."""
+
+    position: int = Field(description="Zero-based order in the author list")
+    given: str | None = Field(default=None, description="Given name(s)")
+    family: str | None = Field(default=None, description="Family / surname")
+    orcid: str | None = Field(default=None, description="ORCID identifier if present")
+    institution: str | None = Field(
+        default=None,
+        description="Primary institution (university, lab, company); no department or address",
+    )
+    country_code: str | None = Field(
+        default=None, description="ISO-3166-1 alpha-2, or null if unknown"
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class PdfAuthorResponse(BaseModel):
+    """Whole-paper response: ordered list of authors with affiliations."""
+
+    authors: list[PdfAuthorItem]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_incomplete(cls, data: Any) -> Any:
+        if isinstance(data, dict) and isinstance(data.get("authors"), list):
+            data["authors"] = [
+                p for p in data["authors"]
+                if isinstance(p, dict) and p.get("position") is not None
+            ]
+        return data
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Embedding-based institution matcher (Stage 1 dedup)
 # ─────────────────────────────────────────────────────────────────────────────
