@@ -118,6 +118,20 @@ def infer_country_from_affiliation(raw_affiliation: str) -> CountryInference:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _coerce_row_id(value: Any) -> int | str:
+    """row_id carries either a numeric contribution row_id (stages 1, 3) or an
+    institution_id string (stage 2). Preserve whichever shape the LLM echoes."""
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    try:
+        return int(s)
+    except ValueError:
+        return s
+
+
 def _to_str_or_none(value: Any) -> str | None:
     if value is None:
         return None
@@ -129,7 +143,7 @@ def _to_str_or_none(value: Any) -> str | None:
 class InstitutionPrediction:
     """Stage 1: LLM extraction of institution + country from raw affiliation."""
 
-    row_id: int
+    row_id: int | str
     institution_name: str | None
     country_code: str | None
     confidence: float
@@ -138,7 +152,7 @@ class InstitutionPrediction:
     def from_dict(cls, d: dict[str, Any]) -> "InstitutionPrediction":
         cc = _to_str_or_none(d.get("country_code"))
         return cls(
-            row_id=int(d.get("row_id", 0)),
+            row_id=_coerce_row_id(d.get("row_id", 0)),
             institution_name=_to_str_or_none(d.get("institution_name")),
             country_code=cc.upper() if cc else None,
             confidence=float(d.get("confidence") or 0.0),
@@ -148,7 +162,7 @@ class InstitutionPrediction:
     def from_pydantic(cls, item: "InstitutionPredictionItem") -> "InstitutionPrediction":
         cc = _to_str_or_none(item.country_code)
         return cls(
-            row_id=int(item.row_id),
+            row_id=_coerce_row_id(item.row_id),
             institution_name=_to_str_or_none(item.institution_name),
             country_code=cc.upper() if cc else None,
             confidence=float(item.confidence or 0.0),
@@ -157,9 +171,13 @@ class InstitutionPrediction:
 
 @dataclass
 class CountryPrediction:
-    """Stage 3: LLM inference of country from raw affiliation only."""
+    """Stage 3: LLM inference of country from raw affiliation only.
 
-    row_id: int
+    Stage 2 reuses this class with ``row_id`` carrying an institution_id
+    string instead of an integer; Stage 3 uses ints. Hence ``int | str``.
+    """
+
+    row_id: int | str
     country_code: str | None
     status: str
     confidence: float
@@ -168,7 +186,7 @@ class CountryPrediction:
     def from_dict(cls, d: dict[str, Any]) -> "CountryPrediction":
         cc = _to_str_or_none(d.get("country_code"))
         return cls(
-            row_id=int(d.get("row_id", 0)),
+            row_id=_coerce_row_id(d.get("row_id", 0)),
             country_code=cc.upper() if cc else None,
             status=(_to_str_or_none(d.get("status")) or "none").lower(),
             confidence=float(d.get("confidence") or 0.0),
@@ -178,7 +196,7 @@ class CountryPrediction:
     def from_pydantic(cls, item: "CountryPredictionItem") -> "CountryPrediction":
         cc = _to_str_or_none(item.country_code)
         return cls(
-            row_id=int(item.row_id),
+            row_id=_coerce_row_id(item.row_id),
             country_code=cc.upper() if cc else None,
             status=(_to_str_or_none(item.status) or "none").lower(),
             confidence=float(item.confidence or 0.0),
@@ -191,7 +209,7 @@ class CountryPrediction:
 
 
 class InstitutionPredictionItem(BaseModel):
-    row_id: int = Field(description="Echo of the input row_id")
+    row_id: int | str = Field(description="Echo of the input row_id (int or string)")
     institution_name: str | None = Field(
         default=None,
         description="Primary institution name (university, lab, company); no department or address",
@@ -217,7 +235,7 @@ class InstitutionPredictionResponse(BaseModel):
 
 
 class CountryPredictionItem(BaseModel):
-    row_id: int = Field(description="Echo of the input row_id")
+    row_id: int | str = Field(description="Echo of the input row_id (int for stages 1+3, string institution_id for stage 2)")
     country_code: str | None = Field(
         default=None, description="ISO-3166-1 alpha-2, or null if unknown"
     )
