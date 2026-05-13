@@ -37,7 +37,7 @@ def cli() -> None:
      12. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
 
     \b
-    Imputation sources (pick one or chain):
+    Imputation sources (pick one):
       openalex impute crossref          Restore raw_affiliation_string from CrossRef
       openalex impute llm               LLM-extract institution + country from raw affiliations
     """
@@ -66,11 +66,15 @@ cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
 cli.add_command(export_format_command)
 
-# Unified imputation subgroup.
-impute_group.add_command(enrich_crossref_command, name="crossref")
-impute_group.add_command(impute_affiliation_command, name="llm")
+# Unified imputation subgroup. Names come from each command's own decorator
+# (@click.command("crossref") / @click.command("llm")) so help/usage output
+# consistently shows "openalex impute crossref" / "openalex impute llm".
+impute_group.add_command(enrich_crossref_command)
+impute_group.add_command(impute_affiliation_command)
 cli.add_command(impute_group)
 
 # Deprecation aliases — keep the old top-level names working for one release.
+# Explicit name= override since the underlying commands now identify as
+# "crossref" / "llm".
 cli.add_command(enrich_crossref_command, name="enrich-crossref")
 cli.add_command(impute_affiliation_command, name="impute-affiliation")
