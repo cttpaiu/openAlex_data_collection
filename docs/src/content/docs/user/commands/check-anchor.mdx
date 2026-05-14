@@ -1,0 +1,35 @@
+---
+title: check-anchor
+description: "Verify that every must-find paper in anchor.txt appears in the current filter."
+---
+
+```sh
+uv run openalex check-anchor
+```
+
+## What it does
+
+For each line in `config/anchor.txt` (DOI or full title), checks whether it appears in the current keyword + topic filter. Reports `found / total`.
+
+## Example
+
+```sh
+uv run openalex check-anchor
+```
+
+```text
+  Checking 12 anchors against current filter…
+  ✓ 10.1038/nphys1170                                   FOUND
+  ✓ 10.1038/nature23474                                 FOUND
+  ✗ Quantum supremacy using a programmable…             MISSING
+  ...
+  Coverage: 11/12  (91.7%)
+```
+
+## Gotchas
+
+- Title matches are exact (whitespace + case normalised). If the anchor title has trailing punctuation or unicode quirks, it may fail.
+- A `MISSING` anchor either:
+  - is not on OpenAlex at all,
+  - has a different DOI / title than what you pasted,
+  - falls outside the date range or doc-type filter.

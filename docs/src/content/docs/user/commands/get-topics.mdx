@@ -1,0 +1,37 @@
+---
+title: get-topics
+description: "Discover OpenAlex topic IDs that appear in your keyword results."
+---
+
+```sh
+uv run openalex get-topics [--details] [--csv]
+```
+
+## What it does
+
+Runs a `group_by=primary_topic.id` query against your current keyword filter and lists topic IDs ranked by paper count. Use this to populate `topics.txt` with the topics that actually matter to your corpus.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--details` | Include each topic's full display name + description |
+| `--csv` | Write `topics_discovered.csv` to the cwd |
+
+## Example
+
+```sh
+uv run openalex get-topics --details --csv
+```
+
+```text
+T10020  Quantum Information and Cryptography                 6,505
+T10682  Cold Atom Physics and Bose-Einstein Condensates      9,625
+T11432  Advanced Frequency and Time Standards                2,903
+...
+```
+
+## Gotchas
+
+- 500-row default cap. Pass `--details --csv` to inspect the long tail.
+- A topic ID surfaced here is not automatically added to `topics.txt`. Copy the IDs you want; comment out the rest.

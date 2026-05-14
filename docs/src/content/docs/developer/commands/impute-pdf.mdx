@@ -1,0 +1,55 @@
+---
+title: impute-pdf (impute pdf)
+description: "PDF source resolver → LLM extraction → InstitutionMatcher → per-paper DB write."
+---
+
+## File
+
+`openalex/commands/impute_pdf.py`
+
+## Per-paper pipeline
+
+```
+DOI ─► find_pdf_url(session, doi, email, sources)
+                                  │
+                                  ▼
+       download_pdf(session, url, doi, cache_dir, max_bytes)
+                                  │
+                                  ▼
+       extract_first_page_text(path)         (PyMuPDF)
+                                  │
+                                  ▼
+       _query_pdf_authors_async(text)         (langchain.with_structured_output(PdfAuthorResponse))
+                                  │
+                                  ▼
+       _match_pdf_authors(llm_authors, target_rows)  (ORCID → position)
+                                  │
+                                  ▼
+       _flush_pdf_paper(con, paper_id, pairs, matcher, ...)
+         → InstitutionMatcher.find_match() per row
+         → existing inst OR synthetic IMP_<sha1>
+         → UPDATE contributions ... COALESCE(...)
+         → audit row + con.commit()
+```
+
+## Bounded worker pool
+
+Same producer/consumer pattern as `impute llm`. Network-bound work (URL resolve + download + LLM call) runs in N=`--concurrent-downloads` workers. DB writes serialise on the main event loop.
+
+## Source resolver
+
+`openalex/pdf.py::find_pdf_url` tries the `sources` tuple in order. Default: `("unpaywall", "openalex", "arxiv")`. OpenAlex catches arXiv preprints that Unpaywall misses for publisher DOIs.
+
+## Stats
+
+Big stats dict: URL counts per source, download outcomes (cached / downloaded / failed_http / failed_network / too_large / not_pdf), text counts, LLM counts (called / failed / no_authors), match counts (orcid / position / mismatch), institution counts (matched_existing / created_synthetic), final write counts (institution_set / country_set / rows_written / papers_enriched).
+
+## Dependencies
+
+- in-repo: `openalex/pdf.py`, `openalex/imputation.py::InstitutionMatcher`, `openalex/commands/impute_affiliation.py` (shared helpers `_ensure_country`, `_insert_audit`, `_StageProgress`, `_langchain_structured_call_async`).
+- 3rd-party: `aiohttp`, `pymupdf`, `langchain-ollama` / `langchain-groq`, `sentence-transformers`, `rich`.
+
+## Gotchas
+
+- ~5 MB avg per PDF × ~6k eligible papers ≈ 30 GB cache. `rm -rf data/cache/pdfs/` after the run if you need the space.
+- LLM hallucination is constrained by `InstitutionMatcher`. Extracted names that don't match an existing institution get a deterministic synthetic ID, so re-runs converge on the same `IMP_<sha1>` row.

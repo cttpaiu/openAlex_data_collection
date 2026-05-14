@@ -1,0 +1,36 @@
+---
+title: search / search-filtered
+description: "Count papers matching keywords (optionally with topics) and verify anchor coverage."
+---
+
+```sh
+uv run openalex search             # keyword-only
+uv run openalex search-filtered    # keyword + topic IDs
+```
+
+## What it does
+
+Fires a single OpenAlex `/works?filter=…&per_page=1` request and reports `meta.count`. Also runs anchor-coverage check (every entry in `anchor.txt` must appear in the result set).
+
+`search` ignores `topics.txt`; `search-filtered` ANDs the topic filter in.
+
+## Example
+
+```sh
+uv run openalex search-filtered
+```
+
+```text
+  Query file:  config/keywords.txt
+  Topics:      89 IDs from topics file
+  Date range:  2003-01-01 → 2024-12-31
+  Doc types:   article, review, proceedings-article
+
+  ✓ Total records: 96,665
+  ✓ Anchor coverage: 12/12 anchors found
+```
+
+## Gotchas
+
+- Anchor coverage misses → either your filter is too tight, or the anchor paper doesn't exist on OpenAlex under that DOI/title. Inspect `anchor.txt` and adjust.
+- Counts can drift day to day as OpenAlex re-indexes. Snapshot the count before `download` for reproducibility.

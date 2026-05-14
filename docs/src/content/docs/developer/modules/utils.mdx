@@ -1,0 +1,36 @@
+---
+title: openalex/utils.py
+description: "build_filter, abstract reconstruction, and Rich helpers."
+---
+
+## Purpose
+
+Tiny utility module — three exported helpers used across multiple commands.
+
+## Public API
+
+| Symbol | Kind | Notes |
+|---|---|---|
+| `build_filter(keywords, topics, date_from, date_to, doc_types)` | fn | **The only sanctioned way** to assemble an OpenAlex filter string |
+| `reconstruct_abstract(inverted_index)` | fn | Turn OpenAlex's `abstract_inverted_index` back into plain text |
+| `print_search_result_panel(...)` | fn | Rich Panel renderer used by `search` / `search-filtered` |
+| `format_number(n)` | fn | `f"{n:,}"` |
+
+## build_filter contract
+
+```python
+"title_and_abstract.search:<keywords>"
+",primary_topic.id:T10020|T10682|…"
+",from_publication_date:2003-01-01,to_publication_date:2024-12-31"
+",type:article|review|proceedings-article"
+```
+
+Never hand-concatenate filter strings — keep them going through `build_filter`. Tests in `tests/test_keywords.py` lock in the format.
+
+## In-repo dependencies
+
+None.
+
+## 3rd-party
+
+`rich`.

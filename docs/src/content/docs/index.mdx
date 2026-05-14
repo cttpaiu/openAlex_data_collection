@@ -1,0 +1,47 @@
+---
+title: openalex-data-collection
+description: "CLI pipeline that collects quantum-computing papers from the OpenAlex API into a normalised DuckDB."
+template: splash
+hero:
+  tagline: A Click-based CLI that turns ~96k OpenAlex quantum-computing papers into a queryable DuckDB — keywords + topics → JSONL → normalised tables → optional CrossRef / PDF / LLM imputation → Web of Science overlay.
+  actions:
+    - text: User guide
+      link: ./user/overview/
+      icon: right-arrow
+    - text: Developer guide
+      link: ./developer/architecture/
+      variant: secondary
+      icon: external
+    - text: GitHub
+      link: https://github.com/Darunesh1/openAlex_data_collection
+      variant: minimal
+      icon: external
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+<CardGrid stagger>
+  <Card title="User guide" icon="open-book">
+    Install, configure, and run the full pipeline. Every command page has
+    real usage examples, expected output, and the common error footguns.
+
+    [Start with the overview →](./user/overview/)
+  </Card>
+  <Card title="Developer guide" icon="puzzle">
+    Architecture diagrams, per-module reference (`openalex/*.py`),
+    schema, dependencies, testing, and contribution flow.
+
+    [Open the architecture map →](./developer/architecture/)
+  </Card>
+  <Card title="What it does" icon="rocket">
+    - Search + sample → validate query quality
+    - Download → 820 MB JSONL → normalised DuckDB (5 tables)
+    - Impute missing affiliations (rule + LLM + CrossRef + PDF)
+    - Overlay Web of Science country-level exports
+  </Card>
+  <Card title="What it doesn't do" icon="warning">
+    - No GUI; everything is one `uv run openalex …` invocation.
+    - No commercial-data scraping.
+    - LLM imputation is local (Ollama) by default; cloud (Groq) opt-in.
+  </Card>
+</CardGrid>
