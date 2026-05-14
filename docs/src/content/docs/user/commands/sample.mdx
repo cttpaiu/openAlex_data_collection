@@ -1,10 +1,32 @@
 ---
 title: sample
-description: "Random reservoir sample for query quality review."
+description: "Random reservoir sample for query-quality review before a full download."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+```sh
+uv run openalex sample [--size N] [--csv PATH]
+```
 
-Random reservoir sample for query quality review.
+## What it does
+
+Streams the current filter results and reservoir-samples `N` papers (default 385 — Cochran sample size for ±5% margin at 95% confidence over a finite population). Prints titles + abstracts to stdout, or writes a CSV.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--size` | 385 | Sample size |
+| `--csv` | `data/exports/sample.csv` | CSV output path |
+
+## Example
+
+```sh
+uv run openalex sample --size 100
+```
+
+Skim the printed titles. If 90+% look on-topic the query is good. If not, tighten `keywords.txt` and re-run.
+
+## Gotchas
+
+- Sample is **random** per invocation. Two runs return different papers.
+- Streams the full result set under the hood to do reservoir sampling — counts as one full traversal of the filter. Still cheaper than `download` because it reads metadata-only fields.

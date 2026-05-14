@@ -1,10 +1,49 @@
 ---
 title: Overview
-description: "High-level orientation: what the CLI is, who it is for, and the rough shape of the pipeline."
+description: "What the CLI does, who it is for, and the shape of the pipeline."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+`openalex-data-collection` is a single-binary Click CLI that turns the OpenAlex graph into a queryable DuckDB tailored for quantum-computing research. ~96,000 papers (2003–2024), filtered by a Boolean keyword query and ~89 OpenAlex topic IDs, are pulled into a normalised five-table schema and then enriched against external sources.
 
-High-level orientation: what the CLI is, who it is for, and the rough shape of the pipeline.
+## Who this is for
+
+- **Researchers** building a bibliometric dataset for a specific subfield. Run the pipeline once, query DuckDB forever.
+- **Data engineers** integrating OpenAlex into a larger pipeline. Each stage commits per-batch so partial runs are safe.
+- **Reviewers / auditors** who need to reproduce a dataset built from the same OpenAlex snapshot.
+
+## What it builds
+
+A DuckDB file at `data/db/<your-name>.duckdb` with five tables: `papers`, `authors`, `institutions`, `countries`, `contributions` (paper ↔ author ↔ institution links). Optional WoS overlay adds two columns on `papers` plus paper-level country markers.
+
+## What it does not do
+
+- No GUI. Every step is `uv run openalex …`.
+- No commercial-data scraping. Only public APIs: OpenAlex, CrossRef, Unpaywall, arXiv.
+- No automatic scraping of paywalled publisher sites.
+
+## Pipeline shape
+
+```
+keywords + topics
+       │
+       ▼
+   search ── validate query
+       │
+       ▼
+   sample ── eyeball quality
+       │
+       ▼
+   download ── data/raw/openalex.jsonl  (~820 MB)
+       │
+       ▼
+   convert-to-db ── data/db/*.duckdb
+       │
+       ▼
+   check-db ── coverage report
+       │
+       ▼ (optional enrichment)
+   import-wos ── overlay WoS country counts
+   impute crossref / pdf / llm ── fill missing institution + country
+```
+
+Continue to **[Installation →](../installation/)** or jump straight to the **[Quick Start →](../quick-start/)**.

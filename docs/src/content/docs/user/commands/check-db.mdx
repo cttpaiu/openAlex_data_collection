@@ -3,8 +3,48 @@ title: check-db
 description: "Paper-centric coverage health report."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+```sh
+uv run openalex check-db [--db PATH]
+```
 
-Paper-centric coverage health report.
+## What it does
+
+Reports paper × country × institution coverage across the DuckDB. Surfaces:
+
+- Total papers, authors, institutions, countries, contributions
+- Papers with abstracts / with country info
+- Papers with **zero institution connection** (subdivided into orphans + all-NULL contributions)
+- Of the zero-institution papers: how many have a recoverable DOI handle
+- Histogram of partial-coverage papers (1 / 2 / 3 / 4 / 5+ missing institutions)
+- Top 5 primary topics
+
+## Example
+
+```sh
+uv run openalex check-db
+```
+
+```text
+┃ Total papers                                      │      43,551 │  100% ┃
+┃ Papers with abstracts                             │      34,725 │ 79.7% ┃
+┃ Papers with country info                          │      35,637 │ 81.8% ┃
+
+┃ Papers with zero institution connection           │       7,894 │ 18.1% ┃
+┃   → orphan (no contribution rows)                 │         139 │  0.3% ┃
+┃   → all contributions missing institution_id      │       7,755 │ 17.8% ┃
+┃   → papers with DOI (recoverable handle)          │       2,727 │ 34.5% ┃
+
+┃ Papers with partial institution coverage          │       1,651 │  3.8% ┃
+┃   → 1 missing                                     │         713        ┃
+```
+
+Use this report to decide which `impute` source to run next:
+
+- High **"papers with DOI"** → run `impute crossref` or `impute pdf`.
+- High **"papers with raw_affiliation (imputable)"** → run `impute llm --stages 1,2,3`.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--db` | from config / prompt | DuckDB file |

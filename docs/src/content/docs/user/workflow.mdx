@@ -1,10 +1,37 @@
 ---
 title: Workflow
-description: "The end-to-end order of operations and when to use which command."
+description: "The intended order of commands and when to use which."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+Run these in order on a fresh clone. Each step is idempotent: re-running picks up where you left off.
 
-The end-to-end order of operations and when to use which command.
+| # | Command | What it does | Required? |
+|---|---|---|---|
+| 1 | `openalex init` | Create config templates | ✅ |
+| 2 | `openalex validate` | Lint keywords + topics | ✅ |
+| 3 | `openalex search` | Keyword-only paper count + anchor coverage | recommended |
+| 4 | `openalex search-filtered` | Keyword + topic count | recommended |
+| 5 | `openalex get-topics` | Discover topic IDs to add | optional |
+| 6 | `openalex check-anchor` | Re-verify anchors after filter changes | optional |
+| 7 | `openalex sample --size N` | Random sample to eyeball quality | recommended |
+| 8 | `openalex download` | Pull all matching records to JSONL | ✅ |
+| 9 | `openalex convert-to-db` | Load JSONL into DuckDB | ✅ |
+| 10 | `openalex check-db` | Coverage health report | recommended |
+| 11 | `openalex import-wos` | Overlay WoS country exports | optional |
+| 12 | `openalex impute crossref` | Restore raw affiliations via CrossRef | optional |
+| 13 | `openalex impute pdf` | LLM-extract from paper PDFs | optional |
+| 14 | `openalex impute llm` | Three-stage LLM imputation on raw affiliations | optional |
+
+## Iteration loop
+
+Steps 3–7 form a loop: tighten the query, re-count, re-sample, repeat. Only proceed to step 8 once `openalex search-filtered` returns a count you trust and `openalex check-anchor` shows full anchor coverage.
+
+## Enrichment order
+
+If you enrich, the recommended order is **crossref → pdf → llm**. Reasoning:
+
+1. CrossRef is cheap (HTTP only) but low yield on physics journals. Run first to get the easy wins.
+2. PDF + LLM is expensive but highest yield (~70% recall on OA papers). Runs after CrossRef has populated whatever it can.
+3. `impute llm --stages 1,2,3` works only on `raw_affiliation_string` already present. CrossRef + PDF populate that field, so they should run first.
+
+Per-batch commits in every imputation command mean you can Ctrl-C mid-run and resume.

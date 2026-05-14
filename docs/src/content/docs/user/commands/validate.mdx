@@ -1,10 +1,38 @@
 ---
 title: validate
-description: "Sanity-check keywords + topics before any network call."
+description: "Sanity-check keywords.txt + topics.txt before any network call."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+```sh
+uv run openalex validate [--no-api]
+```
 
-Sanity-check keywords + topics before any network call.
+## What it does
+
+Lints `config/keywords.txt` and `config/topics.txt`. Catches malformed queries before they hit OpenAlex.
+
+**Keywords:** balanced parentheses, even number of double quotes, uppercase `AND` / `OR` / `NOT`, no empty `()`, no adjacent operators (with quoted phrases stripped first so `"cloning and characterization"` is fine).
+
+**Topics:** every ID must match `^T\d{5}$`. With network: each ID is checked against OpenAlex's `/topics/{id}` endpoint.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--no-api` | Offline check only — no network |
+
+## Example
+
+```sh
+uv run openalex validate --no-api
+```
+
+```text
+  ✓ keywords.txt: valid
+  ✓ topics.txt: 89 IDs, syntax OK
+```
+
+## Gotchas
+
+- Topic IDs that match the regex but don't exist on OpenAlex slip through `--no-api`. Run without the flag at least once.
+- Lowercase `or` / `and` inside non-quoted text fails. Move it into a quoted phrase if it's meant literally.

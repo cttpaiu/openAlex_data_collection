@@ -1,10 +1,54 @@
 ---
 title: convert-to-db
-description: "Load JSONL into the normalised DuckDB schema."
+description: "Load data/raw/openalex.jsonl into a normalised DuckDB."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+```sh
+uv run openalex convert-to-db [--input PATH] [--output NAME] [--db-dir DIR]
+```
 
-Load JSONL into the normalised DuckDB schema.
+## What it does
+
+Streams `data/raw/openalex.jsonl` line by line and inserts into a 5-table normalised schema:
+
+| Table | Rows (96k papers) | Contents |
+|---|---:|---|
+| `papers` | 96,665 | Core per-publication metadata |
+| `authors` | 100,767 | Names + ORCIDs |
+| `institutions` | 7,686 | Organisations + country codes |
+| `countries` | 217 | Country reference table |
+| `contributions` | 405,562 | Paper ↔ author ↔ institution links |
+
+Idempotent: re-running against an existing DB **appends** new papers and skips ones already present (`SELECT 1 FROM papers WHERE id = ?`).
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--input`, `-i` | `data/raw/openalex.jsonl` | JSONL input path |
+| `--output`, `-o` | `quantum_papers.duckdb` | DB filename |
+| `--db-dir` | from config | Output directory |
+
+## Example
+
+```sh
+uv run openalex convert-to-db --output quantum_sensing.duckdb
+```
+
+```text
+Loading: data/raw/openalex.jsonl → data/db/quantum_sensing.duckdb
+  ▰▰▰▰▰▰▰▰▰▰   96,665/96,665   01:42
+
+  Papers loaded:        96,665
+  Authors:             100,767
+  Institutions:          7,686
+  Contributions:       405,562
+  Skipped:                   0
+  Time:                  1.7 min
+```
+
+## Gotchas
+
+- Hong Kong → China remap (`HK → CN`) is applied at load time. Subsequent re-runs of `impute llm` won't unwind it.
+- Out-of-disk space mid-load corrupts the DB. Verify ≥ 2 GB free before starting.
+- The DB filename is just a label — pick something meaningful for your corpus.

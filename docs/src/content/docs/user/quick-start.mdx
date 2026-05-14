@@ -1,10 +1,81 @@
 ---
 title: Quick Start
-description: "Five-minute walkthrough from `init` to a working DuckDB."
+description: "Run the full pipeline end to end in a few minutes."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+import { Steps } from "@astrojs/starlight/components";
 
-Five-minute walkthrough from `init` to a working DuckDB.
+This walkthrough assumes `uv sync` already finished — see **[Installation](../installation/)**.
+
+<Steps>
+
+1. **Create the config templates**
+
+   ```sh
+   uv run openalex init
+   ```
+
+   Generates `config/collection.yml`, `config/keywords.txt`, `config/topics.txt`, `config/anchor.txt`.
+
+2. **Add your API key + email**
+
+   Edit `config/collection.yml` and set:
+
+   ```yaml
+   api:
+     key: "YOUR_OPENALEX_API_KEY"
+     email: "your@email.com"
+   ```
+
+3. **Validate the query offline**
+
+   ```sh
+   uv run openalex validate --no-api
+   ```
+
+   Catches unbalanced parens, lowercase operators, malformed topic IDs.
+
+4. **Sanity-check the result count**
+
+   ```sh
+   uv run openalex search
+   uv run openalex search-filtered
+   ```
+
+5. **Sample 385 random papers before committing to a full download**
+
+   ```sh
+   uv run openalex sample --size 385
+   ```
+
+   Skim the printed titles. Adjust `keywords.txt` if the results drift off-topic.
+
+6. **Download → DuckDB → coverage report**
+
+   ```sh
+   uv run openalex download           # → data/raw/openalex.jsonl (~820 MB)
+   uv run openalex convert-to-db      # → data/db/quantum_papers.duckdb
+   uv run openalex check-db
+   ```
+
+7. **(Optional) enrich missing affiliations**
+
+   ```sh
+   uv run openalex impute crossref           # free, low-yield
+   uv run openalex impute pdf                # heavier, much higher yield
+   uv run openalex impute llm --stages 1,2,3 # rule + LLM, three passes
+   uv run openalex import-wos                # overlay WoS country counts
+   ```
+
+</Steps>
+
+## Where things land
+
+| Path | Contents |
+|---|---|
+| `config/` | YAML + keyword / topic / anchor lists |
+| `data/raw/openalex.jsonl` | raw OpenAlex export |
+| `data/db/*.duckdb` | normalised database |
+| `data/cache/pdfs/` | `impute pdf` cache |
+| `data/cache/institution_embeddings.pt` | sentence-transformers cache for `impute llm` |
+| `data/exports/` | analyst CSVs |

@@ -1,10 +1,78 @@
 ---
 title: Configuration
-description: "Every key in `config/collection.yml`, every flag, every override."
+description: "Every key in collection.yml, every helper file, every override."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+import { Aside } from "@astrojs/starlight/components";
 
-Every key in `config/collection.yml`, every flag, every override.
+All runtime configuration lives in `config/`, created by `openalex init`.
+
+| File | Purpose |
+|---|---|
+| `config/collection.yml` | API keys, date range, batch sizes, LLM provider/model, output paths |
+| `config/keywords.txt` | Boolean keyword query (whitespace collapsed before sending to OpenAlex) |
+| `config/topics.txt` | OpenAlex topic IDs, one per line, format `T` + 5 digits |
+| `config/anchor.txt` | Must-find DOIs or full titles (sanity-check the filter) |
+
+## `collection.yml` reference
+
+```yaml
+api:
+  key: "YOUR_OPENALEX_API_KEY"        # required
+  email: "you@example.com"            # required — used in mailto: User-Agent
+  groq_key: "YOUR_GROQ_KEY_HERE"      # only needed if --llm-provider groq
+  base_url: "https://api.openalex.org/works"
+
+filters:
+  date_from: "2003-01-01"
+  date_to: "2024-12-31"
+  doc_types: ["article", "review", "proceedings-article"]
+
+keywords_file: "config/keywords.txt"
+topics_file:   "config/topics.txt"
+anchor_file:   "config/anchor.txt"
+
+collection:
+  batch_size_topics:   10
+  per_page:            200
+  concurrent_requests: 10
+  max_retries:         5
+  retry_delay:         2
+
+llm:
+  provider: "ollama"                          # or "groq"
+  model:    "sorc/qwen3.5-instruct:2b"
+  base_url: "http://localhost:11434"          # ollama-only
+
+output:
+  jsonl_dir: "data/raw/"
+  db_dir:    "data/db/"
+```
+
+## `keywords.txt`
+
+Free-text Boolean OpenAlex `title_and_abstract.search` query. Operators `AND`, `OR`, `NOT` must be **uppercase**. Quoted phrases are passed through. Multi-line input is fine — whitespace gets collapsed before transmission.
+
+<Aside type="tip">
+Don't put a single keyword on each line. OpenAlex expects one query, not 89 of them. Use parentheses and `OR` to group.
+</Aside>
+
+## `topics.txt`
+
+One topic ID per line, format `T10020`. Comments (`# …`) and blank lines are ignored. Use `openalex get-topics` to discover which topics appear in your keyword results.
+
+## `anchor.txt`
+
+Must-find papers — one DOI **or** full title per line. `openalex check-anchor` reports which anchors fail to appear in the current filter result set. Catches drift when you tighten the keyword query.
+
+## Per-command overrides
+
+Most commands accept flags that override the YAML defaults. See the per-command pages for the full flag list.
+
+| Flag | Overrides | Commands |
+|---|---|---|
+| `--db` | output DB path | every DB-touching command |
+| `--llm-provider` | `llm.provider` | `impute llm`, `impute pdf` |
+| `--llm-model` | `llm.model` | same |
+| `--concurrent-requests` | `collection.concurrent_requests` | `download` |
+| `--limit` | per-stage row cap (debug) | `impute *`, `import-wos` |

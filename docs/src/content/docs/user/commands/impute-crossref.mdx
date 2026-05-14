@@ -1,10 +1,55 @@
 ---
 title: impute crossref
-description: "Restore raw_affiliation_string from CrossRef by DOI."
+description: "Restore raw_affiliation_string from CrossRef via DOI lookup."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+```sh
+uv run openalex impute crossref [--db PATH] [--dry-run] [--limit N]
+                                [--concurrent-requests 10]
+```
 
-Restore raw_affiliation_string from CrossRef by DOI.
+## What it does
+
+For every `contributions` row that has `institution_id IS NULL` and the parent paper has a DOI:
+
+1. Fetch the DOI from CrossRef's polite pool (using `api.email` for `mailto:` UA).
+2. Parse `message.author[].affiliation[].name` strings.
+3. Match CrossRef authors to contribution rows by **ORCID** first, then **ordinal position** (only when CrossRef's author list and our contribution rows have the same length).
+4. Write the joined affiliation strings into `raw_affiliation_string` (idempotent COALESCE — existing values preserved).
+5. Audit row with `stage='crossref'`, `source='crossref'`.
+
+Per-paper commit makes the run resumable.
+
+## What it does NOT do
+
+Does **not** set `institution_id` or `country_code`. Only fills `raw_affiliation_string`. Run `openalex impute llm --stages 1` afterwards to convert that string into institution + country via the LLM pipeline.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dry-run` | off | Preview, no DB writes |
+| `--limit` | none | Cap eligible papers |
+| `--concurrent-requests` | 10 | Polite under CrossRef's ~50 req/s |
+| `--max-retries` | 3 | Retries on 429 / 5xx |
+| `--retry-delay` | 2 | Exponential-backoff base (seconds) |
+
+## Example
+
+```sh
+uv run openalex impute crossref --dry-run --limit 200
+```
+
+```text
+enrich-crossref — fetching 200 papers (concurrency=10)
+  fetched: 152
+  not_found: 48
+  no_affiliations: 146           # physics journals often don't submit affs to CrossRef
+  raw_aff_populated: 3
+  mode: dry-run
+```
+
+## Gotchas
+
+- **CrossRef coverage on physics journals is poor.** Expect ~3-5% of eligible papers to actually yield affiliation strings. Bigger samples reveal it quickly.
+- Author count mismatch (CrossRef returns more authors than our contributions list, or vice versa) → the whole paper is skipped to avoid pairing the wrong row.

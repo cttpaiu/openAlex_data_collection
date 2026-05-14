@@ -1,10 +1,65 @@
 ---
 title: impute pdf
-description: "Fetch a paper's PDF (Unpaywall/arXiv) and LLM-extract author + institution."
+description: "Fetch a paper's PDF (Unpaywall/OpenAlex/arXiv) and LLM-extract authors + affiliations."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+```sh
+uv run openalex impute pdf [--db PATH] [--dry-run] [--limit N]
+                           [--source unpaywall,openalex,arxiv]
+                           [--concurrent-downloads 4] [--max-pdf-mb 30]
+                           [--llm-provider ollama] [--llm-model NAME]
+                           [--llm-min-confidence 0.0]
+```
 
-Fetch a paper's PDF (Unpaywall/arXiv) and LLM-extract author + institution.
+## What it does
+
+For each paper with a DOI and at least one missing `institution_id`:
+
+1. **Resolve a PDF URL** via three sources tried in order:
+   - **Unpaywall** — free polite-pool API. ~30% coverage on physics corpora.
+   - **OpenAlex** — `/works/doi:<doi>` → `best_oa_location.pdf_url`. Catches arXiv preprints that Unpaywall misses.
+   - **arXiv** — only for `10.48550/arXiv.*` DOIs.
+2. **Download** to `data/cache/pdfs/<sha1(doi)>.pdf` (size-capped, Content-Type guarded, content-addressed).
+3. **Extract page-1 text** via PyMuPDF (no OCR; scanned PDFs return empty).
+4. **LLM extract** authors + institution + country code via langchain `.with_structured_output(PdfAuthorResponse)`.
+5. **Match LLM authors to contribution rows** by ORCID → ordinal position (count must align).
+6. **Write** `institution_id` (existing match or synthetic `IMP_<sha1>`) + `country_code` via COALESCE. Audit row with `stage='pdf'`.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dry-run` | off | Preview without DB writes |
+| `--limit` | none | Cap eligible papers |
+| `--source` | `unpaywall,openalex,arxiv` | Comma-separated source order |
+| `--concurrent-downloads` | 4 | Bandwidth-bound; 4-6 is sane on a laptop |
+| `--max-pdf-mb` | 30 | Hard cap per PDF |
+| `--cache-dir` | `data/cache/pdfs` | Content-addressed cache |
+| `--skip-cache` | off | Force re-download |
+| `--llm-*` | as in `impute llm` | Same flag surface |
+| `--match-threshold` | 0.78 | Institution dedup similarity |
+
+## Example
+
+```sh
+uv run openalex impute pdf --limit 50 --dry-run
+```
+
+```text
+impute pdf — 50 papers (sources=('unpaywall','openalex','arxiv'), concurrency=4)
+  url_found_unpaywall: 6
+  url_found_openalex: 11
+  url_found_arxiv: 2
+  url_missing: 31
+  downloaded: 19
+  text_extracted: 19
+  llm_called: 19
+  rows_written: 0          # dry-run; would write ~40
+  papers_enriched: 0       # dry-run
+```
+
+## Gotchas
+
+- ~15 GB disk if you cache all ~6k eligible papers. Cache lives at `data/cache/pdfs/` — `rm -rf` it after the run if you need the space back.
+- LLM hallucination is constrained by `InstitutionMatcher` — extracted names that don't match an existing institution get a deterministic synthetic ID, so re-runs collapse onto the same record.
+- Per-paper commit makes the run resumable; Ctrl-C is safe.

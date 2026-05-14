@@ -3,8 +3,55 @@ title: import-wos
 description: "Overlay per-country Web of Science Excel exports onto the DB."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+```sh
+uv run openalex import-wos [--dir DIR] [--dry-run] [--only FILE]
+                           [--fuzzy-threshold 0.95] [--no-fuzzy]
+```
 
-Overlay per-country Web of Science Excel exports onto the DB.
+## What it does
+
+Walks `data/QSM/*.xlsx` (one Excel per country) and merges WoS-side metadata onto the DuckDB:
+
+1. Maps the filename to an ISO-3166-1 alpha-2 (`China.xlsx → CN`, `UK.xlsx / England.xlsx / Scotland.xlsx → GB`, `Hong Kong.xlsx → CN` via the project's HK→CN rule).
+2. For each WoS row: match by DOI → exact normalised title → fuzzy title (token_sort_ratio ≥ `--fuzzy-threshold` + publication-year diff ≤ 2 + length ratio ≥ 0.6).
+3. Matched papers get `from_wos = TRUE`, OR-merged `is_top_1_percent` / `is_top_10_percent`, and the WoS accession number.
+4. Unmatched papers are inserted with id `WOS_<accession>`, no author/institution rows (we don't have that info from WoS).
+5. Every paper gets a paper-level country marker in `contributions` (NULL author, NULL institution, `country_code` = the file's country, `source = 'wos'`).
+
+Per-file commit. Re-runs are idempotent: matched papers don't get duplicate WoS contribution rows.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dir` | `data/QSM` | Directory containing per-country `.xlsx` |
+| `--dry-run` | off | Preview without DB writes |
+| `--only` | none | Process a single filename (debug) |
+| `--limit-files` | none | Cap number of country files |
+| `--limit-rows-per-file` | none | Cap rows per file |
+| `--fuzzy-threshold` | 0.95 | Min token_sort_ratio (0-1) for fuzzy match |
+| `--no-fuzzy` | off | DOI + exact title only |
+
+## Example
+
+```sh
+uv run openalex import-wos --only Argentina.xlsx --dry-run
+```
+
+```text
+indexed 36,597 existing DOIs, 41,566 titles
+  files processed:        1
+  rows total:             117
+  matched by doi:         49
+  matched by title exact:  3
+  matched by title fuzzy:  0
+  new papers inserted:    65
+  contribs inserted wos:  117
+  mode: dry-run
+```
+
+## Gotchas
+
+- Aggregate Excel files (`1 QSM-Total Publications Country Wise.xlsx`, `Countries Quantum Sensing and Metrology - WoS.xlsx`) are auto-skipped.
+- The fuzzy threshold default (0.95) was tuned to eliminate one-word-substitution false positives (e.g. "He atoms…" matching "Li atoms…"). Lowering it broadens recall but also lets noise through.
+- WoS contribution rows carry `author_id = NULL, institution_id = NULL`. Joins that expect non-null author/institution must filter `WHERE source = 'openalex'`.
