@@ -72,60 +72,21 @@ uv run openalex impute llm --llm-fallback --llm-batch-size 20   # rule + batched
 uv run openalex impute llm --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
 ```
 
-## Commands
+## Documentation
 
-| Command | Description |
-|---|---|
-| `openalex init` | Create config template files |
-| `openalex validate` | Check `keywords.txt` and `topics.txt` before collecting |
-| `openalex search` | Count papers matching keyword query (no topics filter) |
-| `openalex get-topics` | List topics appearing in keyword results (`--details --csv` for full list) |
-| `openalex search-filtered` | Count papers with both keyword + topic filters |
-| `openalex check-anchor` | Check whether all anchor papers are present in current filter results |
-| `openalex sample --size N` | Random reservoir sample to validate query quality |
-| `openalex download` | Download all matching papers to JSONL |
-| `openalex convert-to-db` | Load JSONL into normalised DuckDB (5-table schema) |
-| `openalex check-db` | Paper-centric coverage health report |
-| `openalex impute crossref` | Restore `raw_affiliation_string` from CrossRef via DOI lookup (HTTP only, no LLM) |
-| `openalex impute llm` | Impute missing `institution_id` and `country_code` from `raw_affiliation_string` (rule-first; LLM via langchain + ollama/groq) |
-| `openalex export-format` | Export to analysis CSVs *(coming soon)* |
+The full docs are an [Astro Starlight](https://starlight.astro.build) site at
+**https://darunesh1.github.io/openAlex_data_collection/** with two sidebars:
 
-> The top-level `openalex enrich-crossref` and `openalex impute-affiliation` commands are kept as deprecation aliases of `openalex impute crossref` and `openalex impute llm` for one release.
+- **User Guide** — overview, installation, quick start, configuration, workflow, and a hand-written page per CLI command (`init`, `validate`, `search`, `get-topics`, `check-anchor`, `sample`, `download`, `convert-to-db`, `check-db`, `import-wos`, `impute crossref`, `impute llm`, `impute pdf`).
+- **Developer Guide** — architecture, pipeline data flow, DuckDB schema, dependencies, testing, contributing, plus one reference page per `openalex/*.py` module and per command implementation.
 
-## Config Files
-
-All config lives in the `config/` directory, created by `openalex init`:
-
-| File | Purpose |
-|---|---|
-| `config/collection.yml` | API key, date range, batch sizes, LLM provider/model (`llm.*`), output paths |
-| `config/keywords.txt` | Boolean search query (full-text search on titles + abstracts) |
-| `config/topics.txt` | OpenAlex topic IDs, one per line (format: `T10020`) |
-| `config/anchor.txt` | Must-find papers (one DOI or full title per line) |
-
-## Database Schema
-
-The `convert-to-db` command produces a DuckDB with 5 tables:
-
-| Table | Contents | ~Rows (96k papers) |
-|---|---|---|
-| `papers` | Core metadata per publication | 96,665 |
-| `authors` | Researcher names + ORCIDs | 100,767 |
-| `institutions` | Organisations + country codes | 7,686 |
-| `countries` | Country reference table | 217 |
-| `contributions` | Paper ↔ author ↔ institution links | 405,562 |
-
-## Validation
-
-Run `openalex validate` before any collection. It checks:
-
-**Keywords (`keywords.txt`):** non-empty · balanced parentheses · even double quotes · uppercase operators (OR/AND/NOT) · no adjacent operators · no empty groups `()`
-
-**Topics (`topics.txt`):** format `T` + 5 digits · optionally verifies each ID exists on OpenAlex (use `--no-api` to skip)
+To run the docs locally:
 
 ```bash
-uv run openalex validate --no-api   # fast, offline
-uv run openalex validate             # includes API check
+cd docs
+npm install
+npm run dev      # http://localhost:4321
+npm run build    # static site → docs/dist
 ```
 
 ## Technology Stack
@@ -134,24 +95,14 @@ uv run openalex validate             # includes API check
 |---|---|
 | [click](https://click.palletsprojects.com/) | CLI command framework |
 | [rich](https://rich.readthedocs.io/) | Coloured terminal output, tables, progress bars |
-| [aiohttp](https://docs.aiohttp.org/) | Async HTTP for OpenAlex API |
+| [aiohttp](https://docs.aiohttp.org/) | Async HTTP for OpenAlex / CrossRef / Unpaywall / arXiv |
 | [duckdb](https://duckdb.org/) | Embedded analytical database |
-| [polars](https://pola.rs/) | Fast JSONL processing |
-| [pyyaml](https://pyyaml.org/) | Config file parsing |
-| [questionary](https://questionary.readthedocs.io/) | Interactive terminal prompts |
-
-## Documentation
-
-Full documentation is available on GitHub Pages:
-
-| Page | Description |
-|---|---|
-| [Overview](https://darunesh1.github.io/openAlex_data_collection/) | Project overview and quick start |
-| [Installation](https://darunesh1.github.io/openAlex_data_collection/installation.html) | Detailed setup guide |
-| [Workflow](https://darunesh1.github.io/openAlex_data_collection/workflow.html) | End-to-end pipeline walkthrough |
-| [Commands](https://darunesh1.github.io/openAlex_data_collection/commands.html) | Full command reference |
-| [Configuration](https://darunesh1.github.io/openAlex_data_collection/config.html) | All config fields explained |
-| [Validation Rules](https://darunesh1.github.io/openAlex_data_collection/validation.html) | Keyword and topic ID rules |
+| [polars](https://pola.rs/) | Fast JSONL + Excel processing |
+| [pydantic](https://docs.pydantic.dev/) | Structured-output LLM response schemas |
+| [langchain-ollama / -groq](https://python.langchain.com/) | LLM imputation via `.with_structured_output(...)` |
+| [pymupdf](https://pymupdf.readthedocs.io/) | PDF text extraction for `impute pdf` |
+| [rapidfuzz](https://rapidfuzz.github.io/RapidFuzz/) | Fuzzy title match in `import-wos` |
+| [sentence-transformers](https://www.sbert.net/) | Institution-name cosine similarity matcher |
 
 ## License
 
