@@ -1,10 +1,34 @@
 ---
 title: openalex/validator.py
-description: "Keyword + topic validation."
+description: "Keyword + topic ID linting."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+## Purpose
 
-Keyword + topic validation.
+Enforces query hygiene before any network call. Catches malformed parens, lowercase operators, malformed topic IDs.
+
+## Public API
+
+| Symbol | Notes |
+|---|---|
+| `validate_keywords(query)` | Returns list of error messages; empty = valid |
+| `validate_topic_format(topic_id)` | Regex check `^T\d{5}$` |
+| `validate_topics_exist(topic_ids, email, api_key)` | Async parallel `/topics/{id}` checks |
+| `check_and_print_keyword_errors(keywords)` | Prints Rich errors; returns True if valid |
+
+## Keyword rules
+
+- Non-empty.
+- Balanced `(` `)`.
+- Even number of `"` (quoted phrases).
+- Operators `AND` / `OR` / `NOT` must be **uppercase** — but only **outside** quoted phrases. So `"cloning and characterization"` is fine; bare `cloning and characterization` is not.
+- No empty groups `()`.
+- No adjacent operators (`AND OR`, `OR OR`, etc. — except `AND NOT` and `OR NOT` which are valid).
+
+## In-repo dependencies
+
+None.
+
+## 3rd-party
+
+`aiohttp` (only for the online topic-existence check), `rich`.

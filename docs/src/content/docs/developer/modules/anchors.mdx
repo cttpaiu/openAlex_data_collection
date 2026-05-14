@@ -1,10 +1,30 @@
 ---
 title: openalex/anchors.py
-description: "Anchor paper coverage helper."
+description: "Anchor-paper coverage helper used by search / check-anchor."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+## Purpose
 
-Anchor paper coverage helper.
+Verifies that every entry in `config/anchor.txt` (DOI or full title) is present in the current keyword + topic filter result set.
+
+## Public API
+
+| Symbol | Kind | Notes |
+|---|---|---|
+| `check_anchor_coverage(client, anchors, filter_str)` | async fn | Returns `{anchor: bool}` |
+| `print_anchor_panel(coverage)` | fn | Rich-formatted summary |
+
+## How it works
+
+1. Distinguish DOIs from titles by checking the entry against `^10\.` (DOIs).
+2. For DOIs: hit `/works/doi:<doi>` and check it satisfies the filter (year, doc-type, topics).
+3. For titles: substring/normalised match against `/works?search=<title>` top result.
+4. Returns `True` on hit, `False` otherwise.
+
+## In-repo dependencies
+
+`openalex.api_client.AsyncOpenAlexClient`.
+
+## 3rd-party
+
+`rich`.
