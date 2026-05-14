@@ -1,10 +1,38 @@
 ---
 title: download
-description: "Async download loop, BufferedWriter integration, cursor pagination."
+description: "Async download loop wiring AsyncOpenAlexClient + BufferedWriter."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+## File
 
-Async download loop, BufferedWriter integration, cursor pagination.
+`openalex/commands/download.py`
+
+## What it does
+
+Single async coroutine `_download_async`:
+
+1. Resolves config via `load_config()` + builds the filter via `build_filter()`.
+2. Opens `AsyncOpenAlexClient` + `BufferedWriter` as nested async context managers.
+3. `cursor = "*"`; loops `fetch_page(filter, cursor)` until `meta.next_cursor` is None.
+4. Each page's `results[]` is JSON-serialised line by line into the writer.
+5. Rich Progress bar advanced by `len(results)` per page.
+
+Wrapped at the Click handler via `asyncio.run(_download_async(...))`.
+
+## Resumability
+
+`--resume` reads the existing JSONL once, populates a `set` of `id`s, then skips writing anything already present.
+
+## Idempotency
+
+The JSONL is **not** an idempotent target — re-running without `--resume` overwrites. Use `--resume` to safely retry mid-failure.
+
+## Dependencies
+
+- in-repo: `openalex/config.py`, `openalex/api_client.py`, `openalex/utils.py::build_filter`.
+- 3rd-party: `aiohttp`, `rich`.
+
+## Gotchas
+
+- The JSONL projection is governed by `AsyncOpenAlexClient.SELECT_FIELDS`. Adding a new field requires editing **both** `SELECT_FIELDS` and `convert-to-db`.
+- 429 backoff is per-request (handled inside `AsyncOpenAlexClient.fetch_page`). No global cooldown.

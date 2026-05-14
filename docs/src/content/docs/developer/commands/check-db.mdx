@@ -3,8 +3,42 @@ title: check-db
 description: "Coverage SQL: paper-centric breakdown + WoS overlay."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+## File
 
-Coverage SQL: paper-centric breakdown + WoS overlay.
+`openalex/commands/check_db.py`
+
+## What it does
+
+Read-only DuckDB queries that compute the paper-centric coverage report. No writes.
+
+## Query layout
+
+Each block is one SQL statement wrapped via `_q(con, sql, default)`:
+
+1. **Totals** — `papers`, `authors`, `institutions`, `countries`, `contributions`.
+2. **Coverage** — papers with abstract, with country info.
+3. **Zero-institution paper breakdown**:
+   - orphan (papers with no contribution rows)
+   - all-NULL `institution_id` papers
+   - expanded contribution-row count for those papers
+   - DOI presence split (recoverable handle vs not)
+4. **Partial-coverage histogram** — papers with 1 / 2 / 3 / 4 / 5+ NULL institutions.
+5. **Top 5 primary topics**.
+
+## Coupling
+
+This report is the **first thing** to run after any imputation pass. Use it to decide which `impute` source to run next:
+
+- High "papers with DOI" but low "papers with raw_affiliation (imputable)" → run `impute crossref` or `impute pdf` (they create raw_aff or fill institution+country directly).
+- High "papers with raw_affiliation (imputable)" → run `impute llm --stages 1`.
+- Low both → corpus is at the imputation ceiling; consider PDF source.
+
+## Dependencies
+
+- in-repo: `openalex/config.py::load_config`.
+- 3rd-party: `duckdb`, `rich`, `questionary`.
+
+## Gotchas
+
+- All queries are read-only; the DB is opened with `read_only=True`.
+- "Contributions (authorships)" counts all rows regardless of `source`. Filter `WHERE source='openalex'` if you want only per-author rows.
