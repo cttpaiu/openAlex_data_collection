@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import csv
 import random
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -33,8 +32,17 @@ SAMPLE_FIELDS = (
 @click.option("--size", "-n", required=True, type=int, help="Number of papers to sample")
 @click.option("--config", "config_path", default="config/collection.yml", show_default=True)
 @click.option("--no-topics", is_flag=True, help="Use keyword filter only (ignore topics file)")
-def sample_command(size: int, config_path: str, no_topics: bool) -> None:
-    """Take a random validation sample from matching papers."""
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.option("--csv", "save_csv", is_flag=True, help="Save sample to CSV automatically")
+@click.option("--output", "-o", default=None, help="Output CSV filename (used with --csv)")
+@click.option("--seed", type=int, default=None, help="Random seed for reproducibility")
+@click.option("--reservoir", is_flag=True, help="Use reservoir sampling (slow but statistically valid - scans all papers)")
+def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save_csv: bool, output: str, seed: int, reservoir: bool) -> None:
+    """Take a random validation sample from matching papers.
+
+    Default: Uses OpenAlex's built-in sample parameter (fast).
+    With --reservoir: Scans all papers for statistically valid random sampling.
+    """
     cfg = load_config(config_path)
     cfg.validate_api_key()
 
@@ -56,10 +64,11 @@ def sample_command(size: int, config_path: str, no_topics: bool) -> None:
     # Show active filters before fetching
     _print_filter_summary(cfg, topics, size)
 
-    import questionary
-    if not questionary.confirm("Proceed?", default=True).ask():
-        console.print("[dim]Cancelled.[/dim]")
-        return
+    if not yes:
+        import questionary
+        if not questionary.confirm("Proceed?", default=True).ask():
+            console.print("[dim]Cancelled.[/dim]")
+            return
 
     api_filter = build_filter(
         keywords=keywords,
@@ -69,8 +78,17 @@ def sample_command(size: int, config_path: str, no_topics: bool) -> None:
         doc_types=cfg.doc_types,
     )
 
-    console.print(f"\n[dim]Sampling {size} papers...[/dim]")
-    sampled = asyncio.run(_reservoir_sample(cfg, api_filter, size))
+    # Get total count for progress display
+    console.print("[dim]Getting total paper count...[/dim]")
+    total_count = asyncio.run(_get_count(cfg, api_filter))
+    console.print(f"[dim]Total matching papers: {total_count:,}[/dim]\n")
+
+    if reservoir:
+        console.print(f"\n[dim]Using reservoir sampling (scans all {total_count:,} papers...)[/dim]")
+        sampled = asyncio.run(_reservoir_sample(cfg, api_filter, size, seed))
+    else:
+        # Default: Use OpenAlex sample API (fast)
+        sampled = asyncio.run(_fetch_sample_fast(cfg, api_filter, size, seed))
 
     if not sampled:
         console.print("[yellow]⚠ No papers returned.[/yellow]")
@@ -78,7 +96,10 @@ def sample_command(size: int, config_path: str, no_topics: bool) -> None:
 
     _print_sample_table(sampled)
 
-    if questionary.confirm("\nSave sample to CSV?", default=True).ask():
+    if save_csv:
+        filename = output or f"sample_{datetime.now().strftime('%Y%m%d')}.csv"
+        _save_sample_csv(sampled, filename)
+    elif not yes and questionary.confirm("\nSave sample to CSV?", default=True).ask():
         default_name = f"sample_{datetime.now().strftime('%Y%m%d')}.csv"
         filename = questionary.text("Filename:", default=default_name).ask() or default_name
         _save_sample_csv(sampled, filename)
@@ -94,6 +115,17 @@ def _print_filter_summary(cfg: Any, topics: Optional[list[str]], size: int) -> N
     table.add_row("Doc types", ", ".join(cfg.doc_types))
     table.add_row("Sample size", str(size))
     console.print(Panel(table, title="[bold]Active filters[/bold]", expand=False))
+
+
+async def _get_count(cfg: Any, api_filter: str) -> int:
+    """Get total count of matching papers."""
+    async with AsyncOpenAlexClient(
+        api_key=cfg.api_key,
+        email=cfg.email,
+        max_retries=cfg.max_retries,
+        retry_delay=cfg.retry_delay,
+    ) as client:
+        return await client.get_total_count(api_filter)
 
 
 def _print_sample_table(papers: List[Dict]) -> None:
@@ -147,11 +179,31 @@ def _save_sample_csv(papers: List[Dict], filename: str) -> None:
     console.print(f"[green]✓ Saved to [cyan]{filename}[/cyan][/green]")
 
 
-async def _reservoir_sample(cfg: Any, api_filter: str, k: int) -> List[Dict]:
-    """Reservoir sampling — every paper has equal probability regardless of order."""
-    random.seed(int(time.time() * 1000))
+async def _reservoir_sample(cfg: Any, api_filter: str, k: int, seed: Optional[int] = None) -> List[Dict]:
+    """Reservoir sampling — statistically valid random sample from ALL results.
+
+    Algorithm: https://en.wikipedia.org/wiki/Reservoir_sampling
+    Every paper has equal probability (k/n) of being selected, regardless of order.
+
+    WARNING: This scans ALL matching papers, so it's slow for large datasets.
+    For 500k+ papers, expect 5-10 minutes runtime.
+
+    Args:
+        cfg: Configuration
+        api_filter: OpenAlex API filter string
+        k: Sample size
+        seed: Random seed for reproducibility (optional)
+
+    Returns:
+        List of k randomly sampled papers
+    """
+    if seed is not None:
+        random.seed(seed)
+    else:
+        random.seed(int(datetime.now().timestamp() * 1000))
+
     reservoir: List[Dict] = []
-    n = 0
+    n = 0  # Total papers seen
 
     async with AsyncOpenAlexClient(
         api_key=cfg.api_key,
@@ -162,6 +214,8 @@ async def _reservoir_sample(cfg: Any, api_filter: str, k: int) -> List[Dict]:
         concurrent_requests=cfg.concurrent_requests,
     ) as client:
         cursor = "*"
+        console.print("[dim]Scanning all matching papers for true random sampling...[/dim]")
+
         while cursor:
             data = await client.fetch_page(
                 api_filter, cursor,
@@ -173,16 +227,91 @@ async def _reservoir_sample(cfg: Any, api_filter: str, k: int) -> List[Dict]:
             if not batch:
                 break
 
+            # Reservoir sampling algorithm
             for paper in batch:
                 n += 1
                 if len(reservoir) < k:
+                    # Fill reservoir first
                     reservoir.append(paper)
                 else:
+                    # Replace with probability k/n
                     j = random.randint(0, n - 1)
                     if j < k:
                         reservoir[j] = paper
 
             cursor = data["meta"].get("next_cursor")
 
+            # Progress update every 10k papers
+            if n % 10000 == 0:
+                console.print(f"[dim]  Scanned {n:,} papers...[/dim]")
+
+    console.print(f"[dim]  Total papers scanned: {n:,}[/dim]")
+    console.print(f"[dim]  Sample size: {len(reservoir)}[/dim]")
+
+    # Shuffle before returning
     random.shuffle(reservoir)
     return reservoir
+
+
+async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[int] = None) -> List[Dict]:
+    """Use OpenAlex API's built-in sample parameter (default method).
+
+    OpenAlex docs: https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/sample-entity-lists
+
+    Fast sampling using the native sample parameter.
+    For statistically rigorous sampling, use --reservoir flag instead.
+    
+    Note: OpenAlex returns max 200 papers per page, so we make multiple requests
+    with different random seeds to get k > 200 papers.
+    
+    By default, uses random seeds for different samples each run.
+    Use --seed flag for reproducible samples.
+    """
+    results: List[Dict] = []
+    
+    async with AsyncOpenAlexClient(
+        api_key=cfg.api_key,
+        email=cfg.email,
+        per_page=200,  # Always use max page size
+        max_retries=cfg.max_retries,
+        retry_delay=cfg.retry_delay,
+        concurrent_requests=cfg.concurrent_requests,
+    ) as client:
+        # For k > 200, we need to make multiple requests with different seeds
+        # because OpenAlex sample parameter doesn't support cursor pagination
+        pages_needed = (k // 200) + 1
+        
+        # Generate random base seed if not provided (ensures different sample each run)
+        if seed is None:
+            # Use microseconds for high entropy - guarantees different seed each run
+            base_seed = int(datetime.now().timestamp() * 1_000_000) % (2**31)
+            console.print(f"[dim]Using random seed: {base_seed} (use --seed {base_seed} to reproduce this sample)[/dim]\n")
+        else:
+            base_seed = seed
+            console.print(f"[dim]Using fixed seed: {seed} (reproducible sample)[/dim]\n")
+        
+        for page in range(pages_needed):
+            extra_params = {
+                "select": SAMPLE_FIELDS,
+                "sample": min(200, k - len(results)),
+                "seed": base_seed + page,  # Different seed for each page
+            }
+
+            data = await client.fetch_page(api_filter, cursor="*", extra_params=extra_params)
+            if not data:
+                break
+            batch = data.get("results", [])
+            if not batch:
+                break
+            
+            # Filter out duplicates by ID
+            existing_ids = {p["id"] for p in results}
+            new_papers = [p for p in batch if p["id"] not in existing_ids]
+            results.extend(new_papers)
+            
+            console.print(f"[dim]  Fetched {len(results)}/{k} papers...[/dim]")
+            
+            if len(results) >= k:
+                break
+
+    return results[:k]

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
@@ -61,29 +60,6 @@ def _print_health_report(con, db_path: str) -> None:
         SELECT COUNT(DISTINCT paper_id) FROM contributions WHERE country_code IS NOT NULL
     """)
 
-    # Tier classification
-    tier_sql = """
-        SELECT
-            SUM(CASE WHEN has_country AND has_inst THEN 1 ELSE 0 END),
-            SUM(CASE WHEN (has_country OR has_inst) AND NOT (has_country AND has_inst) THEN 1 ELSE 0 END),
-            SUM(CASE WHEN NOT has_country AND NOT has_inst THEN 1 ELSE 0 END)
-        FROM (
-            SELECT p.id,
-                MAX(c.country_code IS NOT NULL)::BOOLEAN as has_country,
-                MAX(c.institution_id IS NOT NULL)::BOOLEAN as has_inst
-            FROM papers p
-            LEFT JOIN contributions c ON p.id = c.paper_id
-            GROUP BY p.id
-        ) sub
-    """
-    try:
-        tier_row = con.execute(tier_sql).fetchone()
-        tier1 = tier_row[0] or 0
-        tier2 = tier_row[1] or 0
-        tier3 = tier_row[2] or 0
-    except Exception:
-        tier1 = tier2 = tier3 = 0
-
     def pct(n):
         return f"{n / total * 100:.1f}%" if total else "-"
 
@@ -101,10 +77,8 @@ def _print_health_report(con, db_path: str) -> None:
     table.add_section()
     table.add_row("Papers with abstracts", f"{with_abstract:,}", pct(with_abstract))
     table.add_row("Papers with country info", f"{with_country:,}", pct(with_country))
-    table.add_section()
-    table.add_row("[bold]Tier 1[/bold] — Complete metadata", f"{tier1:,}", pct(tier1))
-    table.add_row("Tier 2 — Partial metadata", f"{tier2:,}", pct(tier2))
-    table.add_row("[dim]Tier 3 — Ghost (no location)[/dim]", f"{tier3:,}", pct(tier3))
+
+    _add_paper_coverage_rows(con, table, total, pct)
 
     console.print(table)
 
@@ -122,3 +96,99 @@ def _print_health_report(con, db_path: str) -> None:
                 console.print(f"  [cyan]{name[:60]}[/cyan]  [green]{n:,}[/green]")
     except Exception:
         pass
+
+
+def _add_paper_coverage_rows(con, table, total: int, pct) -> None:
+    orphan = _q(con, """
+        SELECT COUNT(*) FROM papers p
+        WHERE NOT EXISTS (SELECT 1 FROM contributions c WHERE c.paper_id = p.id)
+    """)
+    all_null = _q(con, """
+        SELECT COUNT(*) FROM papers p
+        WHERE EXISTS (SELECT 1 FROM contributions c WHERE c.paper_id = p.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM contributions c
+              WHERE c.paper_id = p.id AND c.institution_id IS NOT NULL
+          )
+    """)
+    zero_total = orphan + all_null
+    contribs_for_zero = _q(con, """
+        SELECT COUNT(*) FROM contributions c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c2
+            WHERE c2.paper_id = c.paper_id AND c2.institution_id IS NOT NULL
+        )
+    """)
+    rows_imputable = _q(con, """
+        SELECT COUNT(*) FROM contributions c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c2
+            WHERE c2.paper_id = c.paper_id AND c2.institution_id IS NOT NULL
+        )
+        AND c.raw_affiliation_string IS NOT NULL
+        AND TRIM(c.raw_affiliation_string) != ''
+    """)
+    papers_imputable = _q(con, """
+        SELECT COUNT(DISTINCT c.paper_id) FROM contributions c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c2
+            WHERE c2.paper_id = c.paper_id AND c2.institution_id IS NOT NULL
+        )
+        AND c.raw_affiliation_string IS NOT NULL
+        AND TRIM(c.raw_affiliation_string) != ''
+    """)
+    rows_dead = contribs_for_zero - rows_imputable
+    papers_with_doi = _q(con, """
+        SELECT COUNT(*) FROM papers p
+        WHERE NOT EXISTS (
+            SELECT 1 FROM contributions c
+            WHERE c.paper_id = p.id AND c.institution_id IS NOT NULL
+        )
+        AND p.doi IS NOT NULL AND TRIM(p.doi) != ''
+    """)
+    papers_without_doi = zero_total - papers_with_doi
+
+    def pct_of(n, d):
+        return f"{n / d * 100:.1f}%" if d else "-"
+
+    table.add_section()
+    table.add_row("[bold]Papers with zero institution connection[/bold]", f"{zero_total:,}", pct(zero_total))
+    table.add_row("  → orphan (no contribution rows)", f"{orphan:,}", pct(orphan))
+    table.add_row("  → all contributions missing institution_id", f"{all_null:,}", pct(all_null))
+    table.add_row("  → contribution rows for those papers (expanded)", f"{contribs_for_zero:,}", "")
+    table.add_row("     · rows with raw_affiliation (imputable)", f"{rows_imputable:,}", pct_of(rows_imputable, contribs_for_zero))
+    table.add_row("     · rows without raw_affiliation (dead end)", f"{rows_dead:,}", pct_of(rows_dead, contribs_for_zero))
+    table.add_row("  → papers with ≥1 imputable row", f"{papers_imputable:,}", pct_of(papers_imputable, zero_total))
+    table.add_row("  → papers with DOI (recoverable handle)", f"{papers_with_doi:,}", pct_of(papers_with_doi, zero_total))
+    table.add_row("  → papers without DOI", f"{papers_without_doi:,}", pct_of(papers_without_doi, zero_total))
+
+    buckets = _partial_coverage_buckets(con)
+    partial_total = sum(buckets.values())
+    table.add_row("[bold]Papers with partial institution coverage[/bold]", f"{partial_total:,}", pct(partial_total))
+    for k in (1, 2, 3, 4, 5):
+        label = "5+ missing" if k == 5 else f"{k} missing"
+        table.add_row(f"  → {label}", f"{buckets.get(k, 0):,}", "")
+
+
+def _partial_coverage_buckets(con) -> dict[int, int]:
+    """Return {bucket: paper_count} where bucket 5 collapses 5+ missing."""
+    try:
+        rows = con.execute("""
+            WITH paper_stats AS (
+                SELECT paper_id,
+                    SUM(CASE WHEN institution_id IS NULL THEN 1 ELSE 0 END) AS missing,
+                    SUM(CASE WHEN institution_id IS NOT NULL THEN 1 ELSE 0 END) AS filled
+                FROM contributions
+                GROUP BY paper_id
+            )
+            SELECT
+                CASE WHEN missing >= 5 THEN 5 ELSE missing END AS bucket,
+                COUNT(*) AS papers
+            FROM paper_stats
+            WHERE missing > 0 AND filled > 0
+            GROUP BY bucket
+            ORDER BY bucket
+        """).fetchall()
+        return {int(b): int(n) for b, n in rows}
+    except Exception:
+        return {}

@@ -8,6 +8,7 @@ import click
 from rich.console import Console
 
 from openalex.api_client import AsyncOpenAlexClient
+from openalex.commands.check_anchor import enforce_anchor_coverage
 from openalex.config import load_config
 from openalex.utils import build_filter, print_search_result_panel
 from openalex.validator import check_and_print_keyword_errors, validate_topic_format
@@ -52,6 +53,7 @@ def search_command(config_path: str, dry_run: bool) -> None:
         date_to=cfg.date_to,
         doc_types=cfg.doc_types,
     )
+    enforce_anchor_coverage(cfg, api_filter, context_name="Keyword search")
 
 
 @click.command("search-filtered")
@@ -106,6 +108,7 @@ def search_filtered_command(config_path: str, dry_run: bool) -> None:
         doc_types=cfg.doc_types,
         topics_count=len(topics),
     )
+    enforce_anchor_coverage(cfg, api_filter, context_name="Filtered search (keywords + topics)")
 
 
 async def _get_count(cfg, api_filter: str) -> int:

@@ -210,3 +210,9 @@ collection.yml
 keywords.txt
 topics.txt
 QWEN.md
+
+# AI assistant files
+CLAUDE.md
+.github/copilot-instructions.md
+.cursor/
+.cursorrules

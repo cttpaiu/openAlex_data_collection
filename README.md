@@ -43,22 +43,33 @@ uv run openalex init
 
 # 2. Edit config/collection.yml — add your API key and email
 # 3. Edit config/topics.txt — add topic IDs (one per line, format: T10020)
+# 4. Edit config/anchor.txt — add must-find DOI/title anchor papers
 
-# 4. Validate before collecting
+# 5. Validate before collecting
 uv run openalex validate --no-api    # syntax check, no internet needed
 uv run openalex validate             # + API existence check for topic IDs
 
-# 5. Explore
-uv run openalex search               # how many papers match?
+# 6. Explore
+uv run openalex search               # keyword count + anchor coverage check
 uv run openalex get-topics --details --csv   # discover topic IDs
+uv run openalex search-filtered      # keyword+topic count + anchor coverage check
+uv run openalex check-anchor         # explicit anchor coverage command
 
-# 6. Sample before full download
+# 7. Sample before full download
 uv run openalex sample --size 385    # random validation sample
 
-# 7. Collect
+# 8. Collect
 uv run openalex download             # download all → JSONL (~820 MB)
 uv run openalex convert-to-db        # JSONL → DuckDB
-uv run openalex check-db             # completeness health report
+uv run openalex check-db             # paper-centric coverage health report
+
+# 9. Impute missing institution/country
+uv run openalex impute --help                  # list imputation sources
+uv run openalex impute crossref                # restore raw_affiliation_string from CrossRef by DOI
+uv run openalex impute llm --dry-run           # preview LLM imputation over raw_affiliation_string
+uv run openalex impute llm --llm-fallback --llm-batch-size 20   # rule + batched LLM
+# optional provider override (otherwise read from config/collection.yml -> llm.*)
+uv run openalex impute llm --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
 ```
 
 ## Commands
@@ -70,11 +81,16 @@ uv run openalex check-db             # completeness health report
 | `openalex search` | Count papers matching keyword query (no topics filter) |
 | `openalex get-topics` | List topics appearing in keyword results (`--details --csv` for full list) |
 | `openalex search-filtered` | Count papers with both keyword + topic filters |
+| `openalex check-anchor` | Check whether all anchor papers are present in current filter results |
 | `openalex sample --size N` | Random reservoir sample to validate query quality |
 | `openalex download` | Download all matching papers to JSONL |
 | `openalex convert-to-db` | Load JSONL into normalised DuckDB (5-table schema) |
-| `openalex check-db` | Completeness health report (Tier 1/2/3 classification) |
+| `openalex check-db` | Paper-centric coverage health report |
+| `openalex impute crossref` | Restore `raw_affiliation_string` from CrossRef via DOI lookup (HTTP only, no LLM) |
+| `openalex impute llm` | Impute missing `institution_id` and `country_code` from `raw_affiliation_string` (rule-first; LLM via langchain + ollama/groq) |
 | `openalex export-format` | Export to analysis CSVs *(coming soon)* |
+
+> The top-level `openalex enrich-crossref` and `openalex impute-affiliation` commands are kept as deprecation aliases of `openalex impute crossref` and `openalex impute llm` for one release.
 
 ## Config Files
 
@@ -82,9 +98,10 @@ All config lives in the `config/` directory, created by `openalex init`:
 
 | File | Purpose |
 |---|---|
-| `config/collection.yml` | API key, date range, batch sizes, output paths |
+| `config/collection.yml` | API key, date range, batch sizes, LLM provider/model (`llm.*`), output paths |
 | `config/keywords.txt` | Boolean search query (full-text search on titles + abstracts) |
 | `config/topics.txt` | OpenAlex topic IDs, one per line (format: `T10020`) |
+| `config/anchor.txt` | Must-find papers (one DOI or full title per line) |
 
 ## Database Schema
 

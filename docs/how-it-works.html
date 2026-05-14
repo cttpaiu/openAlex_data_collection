@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How It Works — OpenAlex CLI</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<!-- Mobile menu toggle -->
+<button class="menu-toggle" aria-label="Toggle navigation">
+  <span></span>
+  <span></span>
+  <span></span>
+</button>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <a href="index.html">
+      <div class="logo-icon">⚛</div>
+      <div>OpenAlex CLI<span class="version">v0.1.0</span></div>
+    </a>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="installation.html">Installation</a>
+    <a href="workflow.html">End-to-End Workflow</a>
+  </nav>
+  <div class="nav-section">Reference</div>
+  <nav>
+    <a href="commands.html">Commands</a>
+    <a href="config.html">Configuration</a>
+    <a href="validation.html">Validation Rules</a>
+  </nav>
+  <div class="nav-section">Technical</div>
+  <nav>
+    <a href="how-it-works.html" class="active">How It Works</a>
+  </nav>
+  <div class="nav-section">Project</div>
+  <nav>
+    <a href="https://github.com/Darunesh1/openAlex_data_collection" target="_blank">GitHub ↗</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="page-header">
+    <h1>How It Works</h1>
+    <p>Deep dive into the architecture, algorithms, and implementation details.</p>
+  </div>
+
+  <h2>System Architecture</h2>
+  <p>The OpenAlex CLI is built as a modular Python package with clear separation of concerns:</p>
+  
+  <div class="feature-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+    <div class="feature-card">
+      <div class="icon">🎯</div>
+      <h3>CLI Layer (click)</h3>
+      <p>Command definitions with type-safe options and help text. Each command is a pure function that reads config and executes a specific task.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🔌</div>
+      <h3>API Client (aiohttp)</h3>
+      <p>Async HTTP client with retry/backoff logic, rate limit handling (HTTP 429), and cursor-based pagination for large result sets.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">⚙️</div>
+      <h3>Config System (PyYAML)</h3>
+      <p>YAML-based configuration with validation. Config files are not tracked in git to protect API keys and allow local customization.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🗄️</div>
+      <h3>Data Layer (DuckDB + Polars)</h3>
+      <p>Fast JSONL processing with Polars, loaded into normalized DuckDB tables for analytical queries.</p>
+    </div>
+  </div>
+
+  <h2>Core Components</h2>
+
+  <h3>1. AsyncOpenAlexClient</h3>
+  <p>The API client handles all communication with OpenAlex. Key features:</p>
+  <ul>
+    <li><strong>Cursor-based pagination:</strong> Uses opaque cursor tokens instead of page numbers for reliable iteration through large result sets</li>
+    <li><strong>Exponential backoff:</strong> Retries failed requests with delays: 2s → 4s → 8s → 16s → 32s</li>
+    <li><strong>Concurrent requests:</strong> Up to 10 parallel requests with semaphore-based rate limiting</li>
+    <li><strong>Buffered writes:</strong> JSONL writer buffers 1000 records before flushing to disk (reduces I/O)</li>
+  </ul>
+  <pre><code>async with AsyncOpenAlexClient(
+    api_key=cfg.api_key,
+    email=cfg.email,
+    per_page=200,
+    max_retries=5,
+    concurrent_requests=10,
+) as client:
+    cursor = "*"
+    while cursor:
+        data = await client.fetch_page(api_filter, cursor)
+        # Process results...
+        cursor = data["meta"].get("next_cursor")</code></pre>
+
+  <h3>2. Filter Builder</h3>
+  <p>Constructs OpenAlex API filter strings from configuration:</p>
+  <pre><code># Input
+keywords = '("quantum computing" OR "qubit")'
+topics = ["T10020", "T10682"]
+date_from = "2003-01-01"
+date_to = "2024-12-31"
+doc_types = ["article", "review"]
+
+# Output filter string
+"title_and_abstract.search:(\"quantum computing\" OR \"qubit\"),
+primary_topic.id:T10020|T10682,
+from_publication_date:2003-01-01,
+to_publication_date:2024-12-31,
+type:article|review"</code></pre>
+  <p>Filters are comma-separated. Each filter type has a specific prefix recognized by the OpenAlex API.</p>
+
+  <h3>3. Keyword Validator</h3>
+  <p>Six syntax rules prevent malformed queries from reaching the API:</p>
+  <ol class="rule-list">
+    <li>
+      <span class="rule-num">1</span>
+      <div class="rule-content">
+        <strong>Non-empty query</strong>
+        <p>Rejects empty or whitespace-only keywords</p>
+      </div>
+    </li>
+    <li>
+      <span class="rule-num">2</span>
+      <div class="rule-content">
+        <strong>Balanced parentheses</strong>
+        <p>Counts open vs close parentheses</p>
+      </div>
+    </li>
+    <li>
+      <span class="rule-num">3</span>
+      <div class="rule-content">
+        <strong>Even double quotes</strong>
+        <p>Every opening quote must have a closing quote</p>
+      </div>
+    </li>
+    <li>
+      <span class="rule-num">4</span>
+      <div class="rule-content">
+        <strong>Uppercase operators</strong>
+        <p>OR, AND, NOT must be uppercase (lowercase is invalid)</p>
+      </div>
+    </li>
+    <li>
+      <span class="rule-num">5</span>
+      <div class="rule-content">
+        <strong>No adjacent operators</strong>
+        <p>Flags "OR OR", "AND AND", "NOT NOT" (but allows "AND NOT", "OR NOT")</p>
+      </div>
+    </li>
+    <li>
+      <span class="rule-num">6</span>
+      <div class="rule-content">
+        <strong>No empty parentheses</strong>
+        <p>Rejects "()" which causes API errors</p>
+      </div>
+    </li>
+  </ol>
+
+  <h3>4. Topic Enrichment</h3>
+  <p>When you run <code>openalex get-topics --details --csv</code>, the tool:</p>
+  <ol>
+    <li>Fetches topic groups via <code>group_by=primary_topic.id</code> (returns topic ID + paper count)</li>
+    <li>For each topic, fetches full metadata from <code>/topics/{id}</code> endpoint in parallel</li>
+    <li>Extracts: <code>display_name</code>, <code>description</code>, <code>keywords</code>, <code>domain</code>, <code>field</code>, <code>subfield</code></li>
+    <li>Exports to CSV with 9 columns</li>
+  </ol>
+  <p>Uses cursor pagination to fetch all topics (not just first 200).</p>
+
+  <h3>5. Random Sampling</h3>
+  <p>Uses OpenAlex's built-in <code>sample</code> parameter instead of custom reservoir sampling:</p>
+  <pre><code># API request
+GET /works?filter=...&sample=100&seed=42&per-page=100
+
+# Returns 100 random papers from all matching results
+# No need to scan entire result set!</code></pre>
+  <p>Benefits:</p>
+  <ul>
+    <li>Instant sampling (no full scan required)</li>
+    <li>Reproducible with <code>seed</code> parameter</li>
+    <li>True random selection (uniform distribution)</li>
+    <li>Max 10,000 samples per request (API limit)</li>
+  </ul>
+
+  <h3>6. Abstract Reconstruction</h3>
+  <p>OpenAlex stores abstracts as inverted indices to save space:</p>
+  <pre><code># OpenAlex format
+{
+  "quantum": [0, 5],
+  "computing": [1],
+  "uses": [2],
+  "qubits": [3, 6],
+  "for": [4]
+}
+
+# Reconstructed text
+"quantum computing uses qubits for quantum computation"</code></pre>
+  <p>The <code>reconstruct_abstract()</code> function:</p>
+  <ol>
+    <li>Flattens the index: <code>[(0, "quantum"), (1, "computing"), (2, "uses"), ...]</code></li>
+    <li>Sorts by position</li>
+    <li>Joins words in order</li>
+  </ol>
+
+  <h2>Data Flow</h2>
+  <ol class="steps">
+    <li>
+      <div class="step-content">
+        <h3>Configuration Loading</h3>
+        <p><code>load_config()</code> reads <code>config/collection.yml</code>, validates API key presence, and provides lazy-loaded access to keywords/topics files.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Filter Construction</h3>
+        <p><code>build_filter()</code> combines keywords, topics, dates, and document types into a single comma-separated filter string.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>API Request</h3>
+        <p><code>fetch_page()</code> sends HTTP GET with filter, cursor, and select parameters. Handles retries and rate limits.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Response Processing</h3>
+        <p>JSON responses are parsed and written to JSONL buffer. Each line is one paper's metadata.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-content">
+        <h3>Database Loading</h3>
+        <p>Polars reads JSONL, normalizes nested structures (authors, institutions), and inserts into DuckDB tables.</p>
+      </div>
+    </li>
+  </ol>
+
+  <h2>Database Schema</h2>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Table</th>
+          <th>Columns</th>
+          <th>~Rows (96k papers)</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>papers</code></td>
+          <td>id, doi, title, year, type, abstract, cited_count, fwci, ...</td>
+          <td>96,665</td>
+          <td>Core paper metadata</td>
+        </tr>
+        <tr>
+          <td><code>authors</code></td>
+          <td>id, name, orcid</td>
+          <td>100,767</td>
+          <td>Unique authors (deduplicated)</td>
+        </tr>
+        <tr>
+          <td><code>institutions</code></td>
+          <td>id, name, country_code, type</td>
+          <td>7,686</td>
+          <td>Universities, labs, companies</td>
+        </tr>
+        <tr>
+          <td><code>countries</code></td>
+          <td>code, name</td>
+          <td>217</td>
+          <td>Country reference table</td>
+        </tr>
+        <tr>
+          <td><code>contributions</code></td>
+          <td>paper_id, author_id, institution_id, position</td>
+          <td>405,562</td>
+          <td>Paper ↔ author ↔ institution links</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Error Handling</h2>
+  <p>The CLI handles errors gracefully at multiple levels:</p>
+  
+  <h3>Config Errors</h3>
+  <ul>
+    <li>Missing config file → Exit with message to run <code>openalex init</code></li>
+    <li>Missing API key → Exit with instructions to edit config</li>
+    <li>Invalid keywords → Show validation errors with line numbers</li>
+  </ul>
+
+  <h3>API Errors</h3>
+  <ul>
+    <li>HTTP 429 (rate limit) → Exponential backoff retry</li>
+    <li>HTTP 403 (forbidden) → Exit with "API key rejected" message</li>
+    <li>HTTP 500 (server error) → Retry up to 5 times</li>
+    <li>Timeout → Retry with longer delay</li>
+  </ul>
+
+  <h3>Data Errors</h3>
+  <ul>
+    <li>Missing abstract → Empty string (not null)</li>
+    <li>Missing topic → "Unknown" placeholder</li>
+    <li>Duplicate authors → Deduplicated by ID</li>
+  </ul>
+
+  <h2>Performance Optimizations</h2>
+  <ul>
+    <li><strong>Async I/O:</strong> All HTTP requests and file writes are non-blocking</li>
+    <li><strong>Concurrent requests:</strong> 10 parallel API calls (configurable)</li>
+    <li><strong>Buffered writes:</strong> 1000-record batches reduce disk I/O</li>
+    <li><strong>Polars for ETL:</strong> Rust-based DataFrame library (10x faster than pandas)</li>
+    <li><strong>DuckDB:</strong> Columnar storage for fast analytical queries</li>
+    <li><strong>Cursor pagination:</strong> No offset-based pagination (avoids slow deep pages)</li>
+  </ul>
+
+  <h2>Testing Strategy</h2>
+  <p>51 tests covering:</p>
+  <ul>
+    <li><strong>Abstract reconstruction</strong> (6 tests) — Various inverted index formats</li>
+    <li><strong>Keyword loading</strong> (8 tests) — Whitespace normalization, Python syntax detection</li>
+    <li><strong>Validation rules</strong> (29 tests) — All 6 keyword rules + topic format</li>
+    <li><strong>Topic pagination</strong> (8 tests) — Cursor-based pagination, enrichment, CSV export</li>
+  </ul>
+  <p>Run tests with: <code>uv run pytest -v</code></p>
+
+  <footer>
+    <span>OpenAlex CLI — v0.1.0</span>
+    <span><a href="index.html">← Back to Overview</a></span>
+  </footer>
+
+  <script src="assets/main.js"></script>
+</main>
+</body>
+</html>
