@@ -3,8 +3,54 @@ title: DuckDB schema
 description: "Every table, every column, every constraint."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+The schema is created idempotently by `openalex/commands/database.py::OpenAlexLoader._create_schema`. Subsequent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` migrations live in `openalex/commands/import_wos.py::_ensure_wos_schema`.
 
-Every table, every column, every constraint.
+## `papers`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | VARCHAR PRIMARY KEY | OpenAlex ID, or `WOS_<accession>` for WoS-only rows |
+| `doi` | VARCHAR | |
+| `title` | TEXT | |
+| `publication_year` | INTEGER | |
+| `type` | VARCHAR | `article`, `review`, … |
+| `journal_name` | VARCHAR | |
+| `cited_by_count` | INTEGER | |
+| `is_top_1_percent` | BOOLEAN | OR-merged with WoS on import |
+| `is_top_10_percent` | BOOLEAN | OR-merged with WoS on import |
+| `fwci` | DOUBLE | |
+| `primary_topic_id` | VARCHAR | |
+| `institutions_distinct_count` | INTEGER | |
+| `countries_distinct_count` | INTEGER | |
+| `is_international` | BOOLEAN | |
+| `abstract_text` | TEXT | reconstructed from OpenAlex inverted index |
+| `from_wos` | BOOLEAN DEFAULT FALSE | added by `import-wos` |
+| `wos_accession_number` | VARCHAR | `WOS:000…` |
+
+(see source for the full column list)
+
+## `authors` / `institutions` / `countries`
+
+`authors(id PK, display_name, orcid)` — basic.
+
+`institutions(id PK, display_name, country_code, type, ror_id, is_synthetic)` — `is_synthetic = TRUE` for imputed rows with id `IMP_<sha1[:10]>`.
+
+`countries(id PK, country_name, country_code UNIQUE, status)` — reference table.
+
+## `contributions`
+
+| Column | Type | Notes |
+|---|---|---|
+| `row_id` | INTEGER PRIMARY KEY | from `seq_contrib` |
+| `paper_id` | VARCHAR | |
+| `author_id` | VARCHAR | NULL for WoS-source rows |
+| `institution_id` | VARCHAR | NULL when impute hasn't filled it |
+| `country_code` | VARCHAR | HK→CN remapped |
+| `author_position` | VARCHAR | `first` / `middle` / `last` |
+| `is_corresponding` | BOOLEAN | |
+| `raw_affiliation_string` | VARCHAR | raw text from publisher metadata |
+| `source` | VARCHAR DEFAULT 'openalex' | `'openalex'` per-author rows; `'wos'` paper-level country markers |
+
+## `country_imputation_audit`
+
+Insert-only audit log. One row per imputation write (Stage 1 / 2 / 3 / pdf / crossref). Columns: `run_at`, `row_id`, `paper_id`, `inferred_country_code`, `matched_terms`, `raw_affiliation_string`, `source`, `confidence`, `stage`.

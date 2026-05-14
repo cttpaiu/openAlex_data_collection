@@ -1,10 +1,64 @@
 ---
 title: Testing
-description: "How `uv run pytest` is wired and where to add fixtures."
+description: "Where tests live, how they're wired, how to add new ones."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+## Running
 
-How `uv run pytest` is wired and where to add fixtures.
+```sh
+uv run pytest                                          # full suite
+uv run pytest tests/test_pdf.py                        # one file
+uv run pytest tests/test_topics.py::test_fetch_all_groups_uses_cursor_pagination
+                                                       # single test
+```
+
+`pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+```
+
+`asyncio_mode = "auto"` means every `async def test_*` is automatically wrapped in an event loop — no `@pytest.mark.asyncio` decorator needed.
+
+## Test file → module mapping
+
+| Test file | Covers |
+|---|---|
+| `test_validation.py` | `openalex/validator.py` (keyword + topic linting) |
+| `test_keywords.py` | Keyword query construction edge cases |
+| `test_topics.py` | Topic ID validation + group-by pagination |
+| `test_anchor.py` | `openalex/anchors.py` |
+| `test_abstract.py` | `openalex/utils.py::reconstruct_abstract` |
+| `test_imputation.py` | `openalex/imputation.py` + `_compute_rule_inference` in `impute_affiliation.py` |
+| `test_pdf.py` | `openalex/pdf.py` (URL resolver, download, text extraction) |
+| `test_wos.py` | `openalex/wos.py` (country mapping, DOI/title normalisation, WosRecord) |
+
+## Convention: tests encode bug history
+
+Many tests are tagged `BUG-001`, `BUG-002`, … in their docstring. Treat these as **behaviour contracts**, not scratch tests. The named bug is the spec.
+
+Example:
+
+```python
+def test_keywords_no_lowercase_or_in_quoted_phrase():
+    """BUG-003: 'cloning and characterization' inside quotes must not
+    trigger the lowercase-operator check."""
+    assert validate_keywords('"cloning and characterization"') == []
+```
+
+## Mocking HTTP
+
+`tests/test_pdf.py` provides a reusable pattern: a `_FakeResp` async context manager + `_session_returning(*responses)` helper. No real aiohttp session, no network. Reusable for adding tests around CrossRef / Unpaywall paths.
+
+## Adding tests for a new command
+
+1. Create `tests/test_<command>.py`.
+2. Import the helper functions you want to test (most stage runners have a `_compute_*` or `_match_*` pure function for unit testing).
+3. For LLM call sites: mock `_langchain_structured_call_async` to return a fixed `PdfAuthorResponse` / `InstitutionPredictionResponse`.
+4. For DB writes: use `duckdb.connect(":memory:")` + run the schema-create helper.
+
+## CI
+
+`uv run pytest` is the gate. No GitHub Actions test workflow yet; add one in a future commit.

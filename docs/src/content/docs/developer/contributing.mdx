@@ -3,8 +3,52 @@ title: Contributing
 description: "Branch naming, commit-message style, PR review flow."
 ---
 
-:::caution
-This page is a stub. Full content lands in the next docs commit.
-:::
+## Branches
 
-Branch naming, commit-message style, PR review flow.
+- `main` — protected; merges from `dev` via fast-forward when ready to tag.
+- `dev` — integration branch; PRs land here.
+- `feature/<topic>` — per-feature branch cut from `dev`.
+
+## Commit messages
+
+[Conventional Commits](https://www.conventionalcommits.org/) with a body that explains **why**, not what:
+
+```
+type(scope): one-line subject ≤ 70 chars
+
+Body: why this change, what the user-visible effect is, any subtle
+mechanics. Reference linked PR comments by URL.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+```
+
+Types in use:
+
+| Type | Use for |
+|---|---|
+| `feat` | new functionality |
+| `fix` | bug fix |
+| `refactor` | code change without behaviour change |
+| `perf` | performance improvement |
+| `docs` | docs only |
+| `chore` | tooling / deps |
+| `ci` | CI / workflows |
+| `rename` | symbol or file rename |
+
+## Per-commit checklist
+
+1. `uv run pytest` — must pass.
+2. `cd docs && npm run build` — must pass if `docs/**` changed.
+3. One commit = one logical change. Split aggressively.
+4. Don't bundle deps + feature in the same commit.
+
+## PR review
+
+Two reviewers in this repo:
+
+- **Copilot** — comments on style + obvious bugs. Address before merging.
+- **You / collaborator** — substantive review. Look at the diff, not just the description.
+
+## Plans live in `~/.claude/plans/`
+
+Long-running feature plans are stored as Markdown under `~/.claude/plans/<slug>.md`. Each one starts with a **Context** section, then commit-by-commit breakdown, then verification + risks. The plan file is the single source of truth for the work — code and commits should match it.
