@@ -18,9 +18,10 @@ Run these in order on a fresh clone. Each step is idempotent: re-running picks u
 | 9 | `openalex convert-to-db` | Load JSONL into DuckDB | ✅ |
 | 10 | `openalex check-db` | Coverage health report | recommended |
 | 11 | `openalex import-wos` | Overlay WoS country exports | optional |
-| 12 | `openalex impute crossref` | Restore raw affiliations via CrossRef | optional |
-| 13 | `openalex impute pdf` | LLM-extract from paper PDFs | optional |
-| 14 | `openalex impute llm` | Three-stage LLM imputation on raw affiliations | optional |
+| 12 | `openalex import-wos-csv` | Import WoS CSV records + OpenAlex enrichment | optional |
+| 13 | `openalex impute crossref` | Restore raw affiliations via CrossRef | optional |
+| 14 | `openalex impute pdf` | LLM-extract from paper PDFs | optional |
+| 15 | `openalex impute llm` | Three-stage LLM imputation on raw affiliations | optional |
 
 ## Iteration loop
 

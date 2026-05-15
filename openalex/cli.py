@@ -14,6 +14,7 @@ from openalex.commands.enrich_crossref import enrich_crossref_command
 from openalex.commands.impute_affiliation import impute_affiliation_command
 from openalex.commands.impute_pdf import impute_pdf_command
 from openalex.commands.import_wos import import_wos_command
+from openalex.commands.import_wos_csv import import_wos_csv_command
 from openalex.commands.export import export_format_command
 from openalex.commands.validate import validate_command
 
@@ -37,13 +38,14 @@ def cli() -> None:
      10. openalex convert-to-db         JSONL → DuckDB
      11. openalex check-db              Paper-centric coverage health report
      12. openalex import-wos            Import per-country Web of Science Excel exports
-     13. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
+     13. openalex import-wos-csv        Import Web of Science records from a CSV file
+     14. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
 
     \b
     Imputation sources (pick one):
       openalex impute crossref          Restore raw_affiliation_string from CrossRef
       openalex impute llm               LLM-extract institution + country from raw affiliations
-      openalex impute pdf               Resolve PDF URL via Unpaywall/arXiv, download, extract page-1 text (LLM step pending)
+      openalex impute pdf               Resolve PDF URL, download, extract text, and use LLM to find affiliations
     """
 
 
@@ -55,7 +57,7 @@ def impute_group() -> None:
     Sources:
       crossref   Pull raw_affiliation_string from CrossRef by DOI (fast, low yield).
       llm        Three-stage LLM pipeline over raw_affiliation_string.
-      pdf        Fetch the paper's PDF (Unpaywall/arXiv) and extract page-1 text into a cache. LLM extraction lands in a follow-up.
+      pdf        Fetch the paper's PDF (Unpaywall/arXiv), extract page-1 text, and use LLM to extract missing affiliations.
     """
 
 
@@ -70,6 +72,7 @@ cli.add_command(download_command)
 cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
 cli.add_command(import_wos_command)
+cli.add_command(import_wos_csv_command)
 cli.add_command(export_format_command)
 
 # Unified imputation subgroup. Names come from each command's own decorator

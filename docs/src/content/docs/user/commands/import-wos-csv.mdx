@@ -1,0 +1,47 @@
+---
+title: import-wos-csv
+description: "Import Web of Science records from a CSV file, fetching full data from OpenAlex."
+---
+
+```sh
+uv run openalex import-wos-csv INPUT_CSV [--db DB_PATH] [--limit LIMIT] [--dry-run]
+```
+
+## What it does
+
+Import records from a Web of Science (WoS) CSV export into the DuckDB database. This command is designed for multi-source institutional data collection where WoS is used to identify relevant works.
+
+1. **Deduplication**: Checks normalized DOIs against the existing database to avoid importing duplicates.
+2. **Metadata Enrichment**: For records with a DOI, it fetches full metadata from OpenAlex (including authors, institutions, and topics).
+3. **Fallback Stub Logic**: If a record has no DOI or if it is not found in OpenAlex, a "stub" record is created using available CSV metadata (Title, Source, Year, etc.).
+4. **Accession Number**: WoS-only papers are assigned IDs prefixed with `WOS_` using their Accession Number.
+5. **Tracking**: All imported papers are marked with `from_wos = TRUE` and store their WoS Accession Number.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `INPUT_CSV` | (required) | Path to the WoS CSV file |
+| `--db` | from config | Path to the DuckDB database file |
+| `--limit` | none | Limit the number of rows to process from the CSV |
+| `--dry-run` | off | Preview new records without fetching from OpenAlex or inserting into DB |
+
+## Example
+
+```sh
+uv run openalex import-wos-csv data/Quantum_Sensing_Metrology_v1.csv --limit 10
+```
+
+```text
+Loading existing data into cache...
+  • 1,234 authors  • 567 institutions
+Found 10 new records in CSV.
+  Importing records... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10/10 0:00:05
+✓ Import complete.
+```
+
+## Implementation Details
+
+- **OpenAlex Fetching**: DOIs are batched (size 50) and fetched via `AsyncOpenAlexClient` for efficiency.
+- **Normalization**: DOIs are normalized (lower-cased, prefix removed) before comparison and insertion.
+- **Schema Handling**: Automatically ensures the database schema exists and includes WoS-specific columns (`from_wos`, `wos_accession_number`).

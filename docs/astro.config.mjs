@@ -44,6 +44,7 @@ export default defineConfig({
                 { label: "convert-to-db", slug: "user/commands/convert-to-db" },
                 { label: "check-db", slug: "user/commands/check-db" },
                 { label: "import-wos", slug: "user/commands/import-wos" },
+                { label: "import-wos-csv", slug: "user/commands/import-wos-csv" },
                 {
                   label: "impute crossref",
                   slug: "user/commands/impute-crossref",
@@ -107,6 +108,7 @@ export default defineConfig({
                 },
                 { label: "impute-pdf", slug: "developer/commands/impute-pdf" },
                 { label: "import-wos", slug: "developer/commands/import-wos" },
+                { label: "import-wos-csv", slug: "developer/commands/import-wos-csv" },
               ],
             },
           ],
