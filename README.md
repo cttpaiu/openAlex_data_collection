@@ -72,6 +72,73 @@ uv run openalex impute llm --llm-fallback --llm-batch-size 20   # rule + batched
 uv run openalex impute llm --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
 ```
 
+## Local LLM (Ollama)
+
+`impute llm` and the LLM passes inside `impute pdf` / `wos-import-impute` need a running Ollama server. Lines like
+
+```
+batch 5/9 FAILED — All connection attempts failed
+```
+
+mean the daemon is not reachable at `llm.base_url` (default `http://localhost:11434`).
+
+### Start it once
+
+```bash
+ollama serve                                     # foreground — Ctrl-C to stop
+ollama pull sorc/qwen3.5-instruct:2b             # one-time model download
+curl -s localhost:11434/api/tags                 # smoke-test
+```
+
+### Keep it alive in the background
+
+```bash
+# macOS / Linux — log to a file, survive the terminal
+nohup ollama serve > ~/.ollama/serve.log 2>&1 &
+
+# macOS Homebrew install — runs as a launchd service across reboots
+brew services start ollama
+
+# Stop it
+brew services stop ollama       # service
+pkill -f "ollama serve"         # nohup
+```
+
+### Tune for parallelism + throughput
+
+Drop these env vars in your shell rc (or `launchctl setenv` on macOS) before `ollama serve` starts. They unlock concurrent decoding and a longer-lived model cache so the LLM passes don't bottleneck the pipeline.
+
+```bash
+export OLLAMA_NUM_PARALLEL=8           # parallel requests per model
+export OLLAMA_MAX_LOADED_MODELS=2      # keep multiple models hot
+export OLLAMA_KEEP_ALIVE=24h           # don't unload between calls
+export OLLAMA_FLASH_ATTENTION=1        # faster attention on supported GPUs
+
+ollama serve
+```
+
+Match the CLI side to what the server can absorb:
+
+```bash
+uv run openalex impute llm \
+  --llm-fallback \
+  --llm-batch-size 32 \
+  --llm-concurrency 8 \
+  --llm-provider ollama
+```
+
+Same flags work via `wos-import-impute`:
+
+```bash
+uv run openalex wos-import-impute \
+  --wos-csv data/your_wos.csv \
+  --db data/db/your.duckdb \
+  --concurrency 20 \
+  --llm-provider ollama
+```
+
+`--concurrency` controls OpenAlex fetch parallelism (capped by `cfg.concurrent_requests`); `--llm-concurrency` controls Ollama parallelism in the impute step. Tune each independently — OpenAlex tolerates 20–30 concurrent on a polite key, while Ollama parallelism is bounded by `OLLAMA_NUM_PARALLEL` and VRAM/RAM headroom.
+
 ## Documentation
 
 The full docs are an [Astro Starlight](https://starlight.astro.build) site at
