@@ -19,6 +19,8 @@ from openalex.commands.export import export_format_command
 from openalex.commands.extract_keywords import extract_keywords_command
 from openalex.commands.build_categorized_query import build_categorized_query_command
 from openalex.commands.validate import validate_command
+from openalex.commands.compare_dois import compare_dois_command
+from openalex.commands.wos_import_impute import wos_import_impute_command
 
 
 @click.group()
@@ -43,7 +45,9 @@ def cli() -> None:
      11. openalex check-db              Paper-centric coverage health report
      12. openalex import-wos            Import per-country Web of Science Excel exports
      13. openalex import-wos-csv        Import Web of Science records from a CSV file
-     14. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
+     14. openalex compare-dois          DOI overlap between DuckDB and a WoS CSV
+     15. openalex wos-import-impute     One-shot: CSV → DOI dedupe → OpenAlex fetch → impute
+     16. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
 
     \b
     Imputation sources (pick one):
@@ -80,6 +84,8 @@ cli.add_command(import_wos_csv_command)
 cli.add_command(export_format_command)
 cli.add_command(extract_keywords_command)
 cli.add_command(build_categorized_query_command)
+cli.add_command(compare_dois_command)
+cli.add_command(wos_import_impute_command)
 
 # Unified imputation subgroup. Names come from each command's own decorator
 # (@click.command("crossref") / @click.command("llm")) so help/usage output
