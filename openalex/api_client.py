@@ -7,6 +7,9 @@ import json
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+from rich.console import Console
+
+console = Console()
 
 
 class BufferedWriter:
@@ -46,7 +49,7 @@ class BufferedWriter:
 
 
 class AsyncOpenAlexClient:
-    """Async HTTP client for OpenAlex API with retry/backoff."""
+    """Async HTTP client for OpenAlex API with retry/backoff and key rotation."""
 
     SELECT_FIELDS = (
         "id,doi,title,publication_year,publication_date,type,"
@@ -56,10 +59,14 @@ class AsyncOpenAlexClient:
         "updated_date,topics,abstract_inverted_index"
     )
 
-    def __init__(self, api_key: str, email: str, per_page: int = 200,
+    # Class-level variables to persist key rotation state across all instances
+    _global_key_index = 0
+    _global_rotation_lock = asyncio.Lock()
+
+    def __init__(self, api_keys: list[str], email: str, per_page: int = 200,
                  max_retries: int = 5, retry_delay: int = 2,
                  concurrent_requests: int = 10):
-        self.api_key = api_key
+        self.api_keys = api_keys
         self.email = email
         self.per_page = per_page
         self.max_retries = max_retries
@@ -67,10 +74,30 @@ class AsyncOpenAlexClient:
         self.semaphore = asyncio.Semaphore(concurrent_requests)
         self.session: Optional[aiohttp.ClientSession] = None
 
+    def _get_current_key(self) -> str:
+        # Ensure index is within bounds in case keys changed
+        if AsyncOpenAlexClient._global_key_index >= len(self.api_keys):
+            AsyncOpenAlexClient._global_key_index = 0
+        return self.api_keys[AsyncOpenAlexClient._global_key_index]
+
+    async def _rotate_key(self) -> bool:
+        """Switch to the next API key if available."""
+        async with AsyncOpenAlexClient._global_rotation_lock:
+            # Re-check inside lock to prevent race condition
+            current = AsyncOpenAlexClient._global_key_index
+            if current < len(self.api_keys) - 1:
+                AsyncOpenAlexClient._global_key_index += 1
+                new_key = self.api_keys[AsyncOpenAlexClient._global_key_index]
+                console.print(f"[yellow]⚠ API limit reached or key rejected. Rotating to key #{AsyncOpenAlexClient._global_key_index + 1}...[/yellow]")
+                if self.session:
+                    self.session.headers.update({"api_key": new_key})
+                return True
+            return False
+
     async def __aenter__(self) -> "AsyncOpenAlexClient":
         headers = {
             "User-Agent": f"mailto:{self.email}",
-            "api_key": self.api_key,
+            "api_key": self._get_current_key(),
         }
         timeout = aiohttp.ClientTimeout(total=60)
         connector = aiohttp.TCPConnector(limit=100)
@@ -83,17 +110,63 @@ class AsyncOpenAlexClient:
         if self.session:
             await self.session.close()
 
+    async def _request(self, method: str, url: str, **kwargs) -> Any:
+        """Internal request handler with key rotation and retries."""
+        for attempt in range(self.max_retries):
+            try:
+                async with self.session.request(method, url, **kwargs) as response:
+                    content_type = response.headers.get("Content-Type", "")
+                    if "json" not in content_type.lower():
+                        # OpenAlex returns HTML for URL-too-long / gateway errors.
+                        # Surface a clean error instead of a JSON decode stack trace.
+                        body = await response.text()
+                        snippet = body.strip().replace("\n", " ")[:200]
+                        full_url = str(response.url)
+                        raise RuntimeError(
+                            f"OpenAlex returned non-JSON response "
+                            f"(HTTP {response.status}, Content-Type={content_type}). "
+                            f"URL length={len(full_url)} chars. "
+                            f"Likely cause: URL too long — shrink the keyword/topic/DOI filter. "
+                            f"Body: {snippet}"
+                        )
+
+                    data = await response.json()
+
+                    # Check for rate limit / budget error in JSON
+                    if response.status == 403 or (isinstance(data, dict) and "error" in data and "Insufficient budget" in data.get("message", "")):
+                        if await self._rotate_key():
+                            # Re-try with new key immediately on rotation
+                            return await self._request(method, url, **kwargs)
+                        else:
+                            if response.status == 403:
+                                raise PermissionError("All API keys exhausted or rejected (HTTP 403).")
+                            else:
+                                raise RuntimeError(f"OpenAlex API Error: {data.get('message', 'Insufficient budget')}")
+
+                    if response.status == 429:
+                        await asyncio.sleep(self.retry_delay * (2 ** attempt))
+                        continue
+
+                    response.raise_for_status()
+                    return data
+            except (PermissionError, RuntimeError):
+                # Structural errors — retrying won't help.
+                raise
+            except Exception as e:
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    raise e
+        return None
+
     async def get_total_count(self, api_filter: str) -> int:
         """Fire one request to get the total result count. Fast."""
         url = "https://api.openalex.org/works"
         params = {"filter": api_filter, "per_page": 1}
-        try:
-            async with self.session.get(url, params=params) as response:
-                response.raise_for_status()
-                data = await response.json()
-                return data["meta"]["count"]
-        except Exception:
-            return 0
+        data = await self._request("GET", url, params=params)
+        if data and "meta" in data:
+            return data["meta"]["count"]
+        return 0
 
     async def fetch_page(self, api_filter: str, cursor: str = "*",
                          extra_params: Optional[Dict] = None) -> Optional[Dict]:
@@ -109,22 +182,7 @@ class AsyncOpenAlexClient:
             params.update(extra_params)
 
         async with self.semaphore:
-            for attempt in range(self.max_retries):
-                try:
-                    async with self.session.get(url, params=params) as response:
-                        if response.status == 429:
-                            await asyncio.sleep(self.retry_delay * (2 ** attempt))
-                            continue
-                        if response.status == 403:
-                            raise PermissionError("API key rejected (HTTP 403).")
-                        response.raise_for_status()
-                        return await response.json()
-                except PermissionError:
-                    raise
-                except Exception:
-                    if attempt < self.max_retries - 1:
-                        await asyncio.sleep(self.retry_delay)
-        return None
+            return await self._request("GET", url, params=params)
 
     async def fetch_group_by(self, api_filter: str, group_by: str,
                              cursor: str = "*") -> Optional[Dict]:
@@ -137,26 +195,13 @@ class AsyncOpenAlexClient:
             "cursor": cursor,
         }
         async with self.semaphore:
-            for attempt in range(self.max_retries):
-                try:
-                    async with self.session.get(url, params=params) as response:
-                        if response.status == 429:
-                            await asyncio.sleep(self.retry_delay * (2 ** attempt))
-                            continue
-                        response.raise_for_status()
-                        return await response.json()
-                except Exception:
-                    if attempt < self.max_retries - 1:
-                        await asyncio.sleep(self.retry_delay)
-        return None
+            return await self._request("GET", url, params=params)
 
     async def fetch_topic_details(self, topic_id: str) -> Optional[Dict]:
         """Get topic display_name and description."""
         url = f"https://api.openalex.org/topics/{topic_id}"
         try:
-            async with self.session.get(url) as response:
-                if response.status == 200:
-                    return await response.json()
+            return await self._request("GET", url)
         except Exception:
             pass
         return None

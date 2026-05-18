@@ -113,7 +113,7 @@ def search_filtered_command(config_path: str, dry_run: bool) -> None:
 
 async def _get_count(cfg, api_filter: str) -> int:
     async with AsyncOpenAlexClient(
-        api_key=cfg.api_key,
+        api_keys=cfg.api_keys,
         email=cfg.email,
         per_page=1,
         max_retries=cfg.max_retries,

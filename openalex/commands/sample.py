@@ -120,7 +120,7 @@ def _print_filter_summary(cfg: Any, topics: Optional[list[str]], size: int) -> N
 async def _get_count(cfg: Any, api_filter: str) -> int:
     """Get total count of matching papers."""
     async with AsyncOpenAlexClient(
-        api_key=cfg.api_key,
+        api_keys=cfg.api_keys,
         email=cfg.email,
         max_retries=cfg.max_retries,
         retry_delay=cfg.retry_delay,
@@ -206,7 +206,7 @@ async def _reservoir_sample(cfg: Any, api_filter: str, k: int, seed: Optional[in
     n = 0  # Total papers seen
 
     async with AsyncOpenAlexClient(
-        api_key=cfg.api_key,
+        api_keys=cfg.api_keys,
         email=cfg.email,
         per_page=cfg.per_page,
         max_retries=cfg.max_retries,
@@ -270,7 +270,7 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
     results: List[Dict] = []
     
     async with AsyncOpenAlexClient(
-        api_key=cfg.api_key,
+        api_keys=cfg.api_keys,
         email=cfg.email,
         per_page=200,  # Always use max page size
         max_retries=cfg.max_retries,

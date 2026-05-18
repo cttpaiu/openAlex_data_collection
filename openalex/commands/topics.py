@@ -147,7 +147,7 @@ async def _fetch_all_groups(cfg: Any, api_filter: str) -> list[dict]:
     cursor = "*"
 
     async with AsyncOpenAlexClient(
-        api_key=cfg.api_key,
+        api_keys=cfg.api_keys,
         email=cfg.email,
         max_retries=cfg.max_retries,
         retry_delay=cfg.retry_delay,
@@ -174,7 +174,7 @@ async def _fetch_all_groups(cfg: Any, api_filter: str) -> list[dict]:
 async def _enrich_topic_data(cfg: Any, groups: list[dict]) -> list[dict]:
     """Fetch display_name, description, and keywords for each topic in parallel."""
     async with AsyncOpenAlexClient(
-        api_key=cfg.api_key,
+        api_keys=cfg.api_keys,
         email=cfg.email,
         max_retries=cfg.max_retries,
         retry_delay=cfg.retry_delay,

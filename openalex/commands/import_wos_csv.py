@@ -103,10 +103,11 @@ async def _import_csv(config_path: str, csv_path: str, final_db_path: str, limit
     con.execute("ALTER TABLE papers ADD COLUMN IF NOT EXISTS wos_accession_number VARCHAR")
 
     async with AsyncOpenAlexClient(
-        api_key=cfg.api_key,
+        api_keys=cfg.api_keys,
         email=cfg.email,
-        concurrent_requests=cfg.concurrent_requests
+        concurrent_requests=cfg.concurrent_requests,
     ) as client:
+
         # Batch DOIs
         batch_size = 50
         batches = [new_records[i:i + batch_size] for i in range(0, len(new_records), batch_size)]

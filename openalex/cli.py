@@ -16,6 +16,8 @@ from openalex.commands.impute_pdf import impute_pdf_command
 from openalex.commands.import_wos import import_wos_command
 from openalex.commands.import_wos_csv import import_wos_csv_command
 from openalex.commands.export import export_format_command
+from openalex.commands.extract_keywords import extract_keywords_command
+from openalex.commands.build_categorized_query import build_categorized_query_command
 from openalex.commands.validate import validate_command
 
 
@@ -26,6 +28,8 @@ def cli() -> None:
 
     \b
     Workflow:
+      0. openalex extract-keywords FILE        TF-IDF over title+abstract → ranked keywords file
+         openalex build-categorized-query JSON  (optional) Bucketed JSON → bounded boolean query
       1. openalex init                  Create config template files
       2. openalex validate              Check keywords.txt and topics.txt
       3. openalex search                Keyword count + anchor check
@@ -74,6 +78,8 @@ cli.add_command(check_db_command)
 cli.add_command(import_wos_command)
 cli.add_command(import_wos_csv_command)
 cli.add_command(export_format_command)
+cli.add_command(extract_keywords_command)
+cli.add_command(build_categorized_query_command)
 
 # Unified imputation subgroup. Names come from each command's own decorator
 # (@click.command("crossref") / @click.command("llm")) so help/usage output

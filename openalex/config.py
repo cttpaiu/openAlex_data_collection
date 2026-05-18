@@ -109,7 +109,7 @@ DEFAULT_ANCHORS_HEADER = """\
 
 @dataclass
 class AppConfig:
-    api_key: str
+    api_keys: list[str]
     groq_api_key: str
     email: str
     base_url: str
@@ -176,10 +176,10 @@ class AppConfig:
         return self._anchors
 
     def validate_api_key(self) -> None:
-        if not self.api_key or self.api_key == "YOUR_API_KEY_HERE":
+        if not self.api_keys or (len(self.api_keys) == 1 and self.api_keys[0] == "YOUR_API_KEY_HERE"):
             console.print(
                 "[bold red]✗ API key not configured.[/bold red]\n"
-                "Edit [cyan]config/collection.yml[/cyan] and set [cyan]api.key[/cyan].",
+                "Edit [cyan]config/collection.yml[/cyan] and set [cyan]api.keys[/cyan].",
             )
             raise SystemExit(1)
 
@@ -197,13 +197,33 @@ def load_config(config_path: str = "config/collection.yml") -> AppConfig:
         raw = yaml.safe_load(f)
 
     api = raw.get("api", {})
+    
+    # Handle multiple 'keys' or numbered keys like 'key1', 'key2'
+    api_keys = api.get("keys", [])
+    if not api_keys:
+        # Check for 'key' or numbered keys 'key1', 'key2', etc.
+        if api.get("key"):
+            api_keys.append(api.get("key"))
+        
+        # Collect all keyN keys
+        numbered_keys = []
+        for k, v in api.items():
+            if k.startswith("key") and k[3:].isdigit():
+                numbered_keys.append((int(k[3:]), v))
+        
+        # Sort by number and add to list
+        numbered_keys.sort()
+        for _, v in numbered_keys:
+            if v not in api_keys:
+                api_keys.append(v)
+    
     filters = raw.get("filters", {})
     coll = raw.get("collection", {})
     llm = raw.get("llm", {})
     out = raw.get("output", {})
 
     return AppConfig(
-        api_key=api.get("key", ""),
+        api_keys=api_keys,
         groq_api_key=api.get("groq_key", ""),
         email=api.get("email", ""),
         base_url=api.get("base_url", "https://api.openalex.org/works"),

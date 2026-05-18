@@ -1,0 +1,214 @@
+{
+    "_meta": {
+        "source": "data/Anchor Papers - Quantum Materials and Devices.xlsx",
+        "params": {
+            "top_n": 50,
+            "ngram_min": 2,
+            "ngram_max": 3,
+            "min_df": 2,
+            "max_df": 0.85
+        }
+    },
+    "keywords": [
+        {
+            "term": "quantum dots",
+            "score": 0.019463211642202476
+        },
+        {
+            "term": "hall effect",
+            "score": 0.017073966434490193
+        },
+        {
+            "term": "bilayer graphene",
+            "score": 0.016372448752698034
+        },
+        {
+            "term": "der waals",
+            "score": 0.01583349691411622
+        },
+        {
+            "term": "van der",
+            "score": 0.01583349691411622
+        },
+        {
+            "term": "van der waals",
+            "score": 0.01583349691411622
+        },
+        {
+            "term": "quantum information",
+            "score": 0.014974134016491752
+        },
+        {
+            "term": "topological insulators",
+            "score": 0.01223658004297309
+        },
+        {
+            "term": "quantum computing",
+            "score": 0.01188697409336135
+        },
+        {
+            "term": "quantum hall",
+            "score": 0.01164172738672681
+        },
+        {
+            "term": "quantum computers",
+            "score": 0.011300384688563316
+        },
+        {
+            "term": "transition metal",
+            "score": 0.011033721585789963
+        },
+        {
+            "term": "spin-orbit coupling",
+            "score": 0.01098651276092535
+        },
+        {
+            "term": "two-dimensional materials",
+            "score": 0.010604894337281094
+        },
+        {
+            "term": "anomalous hall",
+            "score": 0.010249044914862575
+        },
+        {
+            "term": "quantum spin",
+            "score": 0.010045045318747286
+        },
+        {
+            "term": "magnetic field",
+            "score": 0.00973421981757153
+        },
+        {
+            "term": "quantum dot",
+            "score": 0.009596664469936775
+        },
+        {
+            "term": "spin hall",
+            "score": 0.00954982718043568
+        },
+        {
+            "term": "boron nitride",
+            "score": 0.009496278860743404
+        },
+        {
+            "term": "light-emitting diodes",
+            "score": 0.009481801905771983
+        },
+        {
+            "term": "electronic properties",
+            "score": 0.00943056555879582
+        },
+        {
+            "term": "twisted bilayer",
+            "score": 0.009315192043803258
+        },
+        {
+            "term": "metal dichalcogenides",
+            "score": 0.009219746988367448
+        },
+        {
+            "term": "transition metal dichalcogenides",
+            "score": 0.009219746988367448
+        },
+        {
+            "term": "quantum spin hall",
+            "score": 0.008974092893202258
+        },
+        {
+            "term": "electronic structure",
+            "score": 0.008939277246126589
+        },
+        {
+            "term": "quantum computation",
+            "score": 0.008749235859313892
+        },
+        {
+            "term": "quantum states",
+            "score": 0.008640167068789686
+        },
+        {
+            "term": "twisted bilayer graphene",
+            "score": 0.008322482745256416
+        },
+        {
+            "term": "room temperature",
+            "score": 0.008155495946254922
+        },
+        {
+            "term": "quantum hall effect",
+            "score": 0.008107172902504083
+        },
+        {
+            "term": "quantum computer",
+            "score": 0.007746425856139409
+        },
+        {
+            "term": "der waals heterostructures",
+            "score": 0.00748783853156142
+        },
+        {
+            "term": "waals heterostructures",
+            "score": 0.00748783853156142
+        },
+        {
+            "term": "topological insulator",
+            "score": 0.007470968481110034
+        },
+        {
+            "term": "recent advances",
+            "score": 0.007369456684210495
+        },
+        {
+            "term": "quantum hall-effect",
+            "score": 0.0071490201616286496
+        },
+        {
+            "term": "anomalous hall effect",
+            "score": 0.00711626609955815
+        },
+        {
+            "term": "solar cells",
+            "score": 0.007069533620868796
+        },
+        {
+            "term": "edge states",
+            "score": 0.0070248481047543235
+        },
+        {
+            "term": "hexagonal boron",
+            "score": 0.006978471109969153
+        },
+        {
+            "term": "hexagonal boron nitride",
+            "score": 0.006978471109969153
+        },
+        {
+            "term": "quantum efficiency",
+            "score": 0.0069411830513142125
+        },
+        {
+            "term": "information processing",
+            "score": 0.006846167280381932
+        },
+        {
+            "term": "quantum teleportation",
+            "score": 0.006770902202576451
+        },
+        {
+            "term": "quantum devices",
+            "score": 0.0067469113802989915
+        },
+        {
+            "term": "error correction",
+            "score": 0.0066606274099058225
+        },
+        {
+            "term": "quantum processor",
+            "score": 0.006633627123937033
+        },
+        {
+            "term": "quantum anomalous",
+            "score": 0.006537744888346903
+        }
+    ]
+}

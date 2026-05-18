@@ -1082,6 +1082,7 @@ dependencies = [
     { name = "questionary" },
     { name = "rapidfuzz" },
     { name = "rich" },
+    { name = "scikit-learn" },
     { name = "sentence-transformers" },
 ]
 
@@ -1109,6 +1110,7 @@ requires-dist = [
     { name = "questionary", specifier = ">=2.1.1" },
     { name = "rapidfuzz", specifier = ">=3.0.0" },
     { name = "rich", specifier = ">=14.3.3" },
+    { name = "scikit-learn", specifier = ">=1.5.0" },
     { name = "sentence-transformers", specifier = ">=3.0.0" },
 ]
 
