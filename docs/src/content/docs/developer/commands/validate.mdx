@@ -1,0 +1,37 @@
+---
+title: validate
+description: "Local keyword/topic linting plus optional OpenAlex topic-existence checks."
+---
+
+## File
+
+`openalex/commands/validate.py`
+
+## Command flow
+
+`validate_command()`:
+
+1. Loads config with `load_config()`.
+2. Reads `cfg.keywords_file` directly from disk and validates it with `validate_keywords()`.
+3. Prints keyword file length, word count, and a 200-character preview when valid.
+4. Reads `cfg.topics_file` directly from disk when present.
+5. Ignores blank lines and `#` comments.
+6. Splits topics into regex-valid IDs and malformed IDs with `validate_topic_format()`.
+7. Unless `--no-api` is set, validates the API key and calls `validate_topics_exist()`.
+8. Raises `SystemExit(1)` if keyword validation fails, topic format fails, or online topic existence fails.
+
+Missing or empty `topics.txt` is a warning, not a failure.
+
+## Output helpers
+
+- `_print_format_results(valid, bad)` prints malformed topic IDs and the expected `T10020` style.
+- `_print_api_results(existence)` prints confirmed and missing OpenAlex topic IDs.
+
+## API check
+
+The online topic check passes the first configured OpenAlex key into `validate_topics_exist()`, which adds it as an `api_key` header when it is not the placeholder.
+
+## Dependencies
+
+- in-repo: `openalex/config.py`, `openalex/validator.py`.
+- 3rd-party: `click`, `rich`.

@@ -90,7 +90,7 @@ def validate_command(config_path: str, no_api: bool) -> None:
                 cfg.validate_api_key()
                 console.print(f"\n[dim]Checking {len(valid_ids)} IDs against OpenAlex API...[/dim]")
                 existence = asyncio.run(
-                    validate_topics_exist(valid_ids, cfg.email, cfg.api_key)
+                    validate_topics_exist(valid_ids, cfg.email, cfg.api_keys[0] if cfg.api_keys else "")
                 )
                 _print_api_results(existence)
                 not_found = [tid for tid, ok in existence.items() if not ok]

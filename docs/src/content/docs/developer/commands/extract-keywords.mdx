@@ -1,0 +1,29 @@
+---
+title: extract-keywords
+description: "TF-IDF keyword extraction over title+abstract fields."
+---
+
+## File
+
+`openalex/commands/extract_keywords.py`
+
+## Function layout
+
+- `_load_dataframe()` reads `.xlsx`, `.xls`, or `.csv` into Polars.
+- `_build_documents()` validates the title/abstract columns and drops very short combined texts.
+- `_score_terms()` uses scikit-learn `TfidfVectorizer` with English stop words and the token pattern `(?u)\b[a-zA-Z][a-zA-Z\-]+\b`.
+- `_print_table()` renders the top terms.
+- `_confirm_overwrite()` prompts before replacing an existing output unless `--force` is set.
+- `_write_output()` writes JSON, CSV, or plain text.
+
+## Output formats
+
+- JSON: `_meta` plus `keywords: [{term, score}]`.
+- CSV: `rank,term,score`.
+- TXT: comments with source/params followed by one term per line.
+
+## Gotchas
+
+- `ngram_min` and `ngram_max` are validated before scoring.
+- TF-IDF can produce no terms if `--min-df` is too high or `--max-df` is too low.
+- Query construction is deliberately separate; this command only produces ranked candidates.

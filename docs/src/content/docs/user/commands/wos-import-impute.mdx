@@ -1,0 +1,41 @@
+---
+title: wos-import-impute
+description: "One-shot WoS CSV ingest, OpenAlex DOI enrichment, and optional LLM imputation."
+---
+
+```sh
+uv run openalex wos-import-impute [--wos-csv PATH] [--db PATH] [--no-impute]
+```
+
+## What it does
+
+This is the single-command path for a Web of Science CSV:
+
+1. Read the WoS CSV and skip normalized DOIs already present in `papers`.
+2. Batch-fetch new DOI records from OpenAlex.
+3. Insert found OpenAlex records through the normal DuckDB loader and mark them as `from_wos = TRUE`.
+4. Insert WoS stub `papers` rows for CSV records that have no DOI or are not found in OpenAlex.
+5. Unless `--no-impute` or `--dry-run` is set, invoke the LLM imputation command against the same DB.
+
+## Required input
+
+The CSV must contain a `DOI` column. Common WoS columns such as `Article Title`, `Source`, `Publication Date`, `Times Cited`, `Document Type`, and `Accession Number` are used for stub rows when present.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--wos-csv` | prompt, default text `data/` | Web of Science CSV file |
+| `--db` | from config / prompt | DuckDB file |
+| `--config` | `config/collection.yml` | API, DB, and LLM defaults |
+| `--limit` | none | Limit CSV rows to process |
+| `--concurrency` | `api.concurrent_requests` | Override OpenAlex request concurrency |
+| `--dry-run` | off | Count new records only; no fetching, inserts, or imputation |
+| `--no-impute` | off | Skip the chained imputation pass |
+| `--llm-provider` | from config | `groq` or `ollama` for the chained impute step |
+| `--groq-api-key` | config / env | Groq key for chained imputation |
+| `--stages` | `1,2,3` | Imputation stages for the chained pass |
+
+## Resume behavior
+
+The command writes through DuckDB as it goes and skips existing DOIs on the next run. If OpenAlex budget or keys fail mid-run, it prints an aborted summary and does not chain imputation; rerun the same command to resume first.

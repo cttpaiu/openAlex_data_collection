@@ -4,7 +4,7 @@ description: "Paper-centric coverage health report."
 ---
 
 ```sh
-uv run openalex check-db [--db PATH]
+uv run openalex check-db [--config PATH] [--db PATH]
 ```
 
 ## What it does
@@ -12,9 +12,10 @@ uv run openalex check-db [--db PATH]
 Reports paper × country × institution coverage across the DuckDB. Surfaces:
 
 - Total papers, authors, institutions, countries, contributions
+- Publication year range
 - Papers with abstracts / with country info
 - Papers with **zero institution connection** (subdivided into orphans + all-NULL contributions)
-- Of the zero-institution papers: how many have a recoverable DOI handle
+- Of the zero-institution papers: how many have raw affiliation text and/or a recoverable DOI handle
 - Histogram of partial-coverage papers (1 / 2 / 3 / 4 / 5+ missing institutions)
 - Top 5 primary topics
 
@@ -47,4 +48,5 @@ Use this report to decide which `impute` source to run next:
 
 | Flag | Default | Description |
 |---|---|---|
+| `--config` | `config/collection.yml` | Collection configuration used for the default DB directory |
 | `--db` | from config / prompt | DuckDB file |

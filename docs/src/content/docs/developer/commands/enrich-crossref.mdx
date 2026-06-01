@@ -24,10 +24,13 @@ Does **not** set `institution_id` or `country_code`. Only fills `raw_affiliation
 
 `AsyncCrossRefClient` uses a `Semaphore(concurrent_requests)` (default 10). 429 → exponential backoff. 404/410 → counted as `not_found`.
 
+`api.email` must be set in the config so CrossRef receives a polite-pool `mailto:` contact in the User-Agent.
+
 ## Author matching gotchas
 
 - If `len(crossref_authors) != len(target_rows)`, the paper is skipped entirely. CrossRef occasionally includes corrigendum authors or omits some — pairing-by-position-with-mismatched-lengths would pair the wrong row.
 - ORCID strip handles both `https://orcid.org/...` and bare `0000-...` forms.
+- `_load_target_rows()` intentionally loads the full contribution roster for a paper. The update itself still writes only rows whose `raw_affiliation_string` is empty.
 
 ## Dependencies
 

@@ -1,0 +1,36 @@
+---
+title: compare-dois
+description: "DOI set overlap between DuckDB and a WoS CSV."
+---
+
+## File
+
+`openalex/commands/compare_dois.py`
+
+## What it does
+
+Reads normalized DOI sets from DuckDB and a Web of Science CSV, renders an overlap table, optionally prints sample unmatched records, and optionally exports unmatched sets.
+
+## Function layout
+
+- `compare_dois_command()` loads config, prompts for missing paths, validates file existence, computes set overlap, renders output, and optionally exports.
+- `_db_dois()` opens DuckDB with `read_only=True`, reads distinct non-empty `papers.doi`, and normalizes each DOI.
+- `_wos_csv_dois()` reads the CSV with Polars, requires a `DOI` column, applies the same DOI normalizer, and returns both DOI set and original dataframe.
+- `_render()` prints the common / only-DB / only-WoS counts.
+- `_show_samples()` prints up to three WoS-only rows with `DOI` and optional `Article Title`, plus up to three DB-only DOIs.
+- `_export()` writes `wos_dois_missing_from_db.csv` with original WoS columns and `db_dois_missing_from_wos.csv` with a single `doi` column.
+
+## Normalization
+
+All DOI comparisons go through `openalex.wos.normalize_doi()`. This keeps `compare-dois` aligned with the WoS import path and avoids treating URL-form, uppercase, or prefixed DOI strings as different records.
+
+## Dependencies
+
+- in-repo: `openalex.config.load_config`, `openalex.wos.normalize_doi`.
+- 3rd-party: `click`, `duckdb`, `polars`, `rich`, `questionary`.
+
+## Gotchas
+
+- The CSV reader treats `n/a`, `N/A`, `na`, `null`, and empty strings as null DOI values.
+- The WoS CSV must contain a column named exactly `DOI`.
+- `--export-dir` preserves full WoS rows for WoS-only records but exports only normalized DOI strings for DB-only records.

@@ -1,22 +1,45 @@
 ---
 title: openalex/api_client.py
-description: "AsyncOpenAlexClient, BufferedWriter, and the SELECT_FIELDS projection used for downloads."
+description: "AsyncOpenAlexClient, process-wide API-key rotation, BufferedWriter, and the SELECT_FIELDS projection used for downloads."
 ---
 
 ## Purpose
 
-Async HTTP client wrapping the OpenAlex `/works` endpoint with cursor pagination, retry / backoff, and a `Semaphore` for concurrent requests. Also hosts `BufferedWriter` — a lock-guarded JSONL writer that flushes in `buffer_size` chunks.
+Async HTTP client wrapping the OpenAlex `/works` endpoint with cursor pagination, retry / backoff, API-key rotation, and a `Semaphore` for concurrent requests.
+
+This module also hosts `BufferedWriter`, a lock-guarded JSONL writer that flushes in `buffer_size` chunks, plus the private `_ApiKeyPool` used by every `AsyncOpenAlexClient` instance in the current Python process.
 
 ## Public API
 
 | Symbol | Kind | Notes |
 |---|---|---|
 | `AsyncOpenAlexClient` | class | Async context manager; `__aenter__` opens an `aiohttp.ClientSession` |
+| `AsyncOpenAlexClient.pool_snapshot()` | classmethod | Returns key-pool totals, state counts, and per-key usage counters |
+| `AsyncOpenAlexClient.get_total_count(filter)` | async fn | Fast `per_page=1` count lookup from `meta.count` |
 | `AsyncOpenAlexClient.fetch_page(filter, cursor)` | async fn | One cursor-paginated page |
 | `AsyncOpenAlexClient.fetch_group_by(filter, group_by)` | async fn | Group-by query (used by `get-topics`) |
 | `AsyncOpenAlexClient.fetch_topic_details(topic_id)` | async fn | Single topic lookup |
+| `AsyncOpenAlexClient.fetch_all_pages(filter, fields=None)` | async fn | Convenience collector for small bounded queries; used by DOI batch imports |
 | `AsyncOpenAlexClient.SELECT_FIELDS` | str | Comma-sep field projection; load-bearing |
 | `BufferedWriter` | class | Async context manager; `write(line)` + auto-flush |
+
+## API-key pool
+
+`_ApiKeyPool` is private, but it is load-bearing infrastructure. The pool is stored on `AsyncOpenAlexClient._pool`, so key health is shared across client instances in the same process.
+
+Keys have three states:
+
+| State | Meaning |
+|---|---|
+| `active` | Eligible for new requests |
+| `exhausted` | OpenAlex returned an `Insufficient budget` API response; budget resets at UTC midnight |
+| `rejected` | OpenAlex returned HTTP 403 for a non-budget problem, usually a bad or revoked key |
+
+`acquire()` round-robins across active keys and increments the selected key's usage counter. `_request()` injects the selected key into request headers per attempt, so concurrent requests do not race by mutating shared session headers.
+
+`mark()` is idempotent. If several concurrent requests discover the same failed key, only the first active-to-terminal transition prints the rotation message; later marks see that the key has already changed state and do nothing.
+
+When no active keys remain, `_request()` raises `PermissionError("All API keys exhausted or rejected — OpenAlex budget resets at UTC midnight.")`.
 
 ## SELECT_FIELDS — load-bearing
 
@@ -34,9 +57,40 @@ SELECT_FIELDS = (
 
 ## Retry semantics
 
-- HTTP 429 → exponential backoff (`retry_delay * 2**attempt`).
-- HTTP 403 → permanent (raises `PermissionError`).
-- Other 5xx → up to `max_retries` retries with `retry_delay` sleep.
+- OpenAlex JSON error containing `Insufficient budget` → mark that key `exhausted`, then retry with the next active key.
+- HTTP 403 → mark that key `rejected`, then retry with the next active key.
+- HTTP 429 → exponential backoff (`retry_delay * 2**attempt`) while leaving the key active.
+- Other request exceptions → retry up to `max_retries`, sleeping `retry_delay` between attempts.
+- Non-JSON responses → `RuntimeError` with HTTP status, content type, URL length, and a body snippet. The error text assumes the common cause is an overly long OpenAlex filter URL.
+
+## Fetch helpers
+
+`fetch_page()` is the main download primitive. It sends:
+
+```python
+{
+    "filter": api_filter,
+    "per_page": self.per_page,
+    "cursor": cursor,
+    "select": self.SELECT_FIELDS,
+}
+```
+
+Any `extra_params` override those defaults. This is how `fetch_all_pages(..., fields="...")` can request a narrower field projection for DOI-batch enrichment or import flows.
+
+`fetch_group_by()` uses the same `/works` endpoint with `group_by`, fixed `per_page=200`, and cursor pagination.
+
+`fetch_topic_details()` calls `/topics/{topic_id}` and returns `None` on any exception. Callers should treat topic metadata as best-effort.
+
+`get_total_count()` sends `per_page=1` and reads `meta.count`; it returns `0` when the response lacks `meta`.
+
+`fetch_all_pages()` accumulates every page into memory. Keep it for small bounded filters such as DOI batches, not full corpus downloads.
+
+## BufferedWriter
+
+`BufferedWriter(filename, buffer_size=1000, mode="w")` opens the file in async context manager entry with UTF-8 encoding and a 32 KiB Python buffer. Calls to `write(line)` append to an in-memory list protected by `asyncio.Lock`; once the list reaches `buffer_size`, `_flush_locked()` writes a newline-joined block plus a trailing newline.
+
+`__aexit__()` always calls `flush()` before closing the file, so partial final batches are persisted.
 
 ## In-repo dependencies
 

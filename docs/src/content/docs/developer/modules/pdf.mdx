@@ -12,10 +12,12 @@ Three pure async-friendly functions used by `impute pdf`. No DB, no LLM, no stat
 | Symbol | Kind | Notes |
 |---|---|---|
 | `find_pdf_url(session, doi, email, sources)` | async fn | Returns `(url, source)`; tries `sources` in order |
+| `_normalize_doi(raw)` | fn | Strips DOI URL / `doi:` prefix before source lookups |
 | `_unpaywall_pdf_url(session, doi, email)` | async fn | Unpaywall polite-pool |
 | `_openalex_pdf_url(session, doi, email)` | async fn | OpenAlex `/works/doi:<doi>` `best_oa_location.pdf_url` |
 | `_arxiv_id_from_doi(doi)` | fn | Returns the arXiv id for `10.48550/arXiv.<id>` DOIs |
-| `download_pdf(session, url, doi, cache_dir, max_bytes, skip_cache)` | async fn | Returns `(path, err)`; content-addressed cache |
+| `_cache_path(doi, cache_dir)` | fn | SHA1-of-DOI cache filename helper |
+| `download_pdf(session, url, doi, cache_dir, max_bytes, skip_cache)` | async fn | Returns `(path, err)`; DOI-keyed cache |
 | `extract_first_page_text(path)` | fn | PyMuPDF; first page only; no OCR |
 | `text_metrics(text)` | fn | `{chars, lines, empty}` diagnostic |
 
@@ -27,10 +29,18 @@ sources: tuple = ("unpaywall", "openalex", "arxiv")
 
 Default order tries Unpaywall first (most direct API), then OpenAlex (catches arXiv preprints that Unpaywall missed), then arXiv (only when the DOI itself is arXiv-minted).
 
+Lookup details:
+
+- Unpaywall reads `best_oa_location.url_for_pdf` first, then scans `oa_locations[].url_for_pdf`.
+- OpenAlex reads `best_oa_location.pdf_url`, then `primary_location.pdf_url`, then scans `locations[].pdf_url`.
+- arXiv only fires when the normalised DOI starts with `10.48550/arxiv.`.
+- Source HTTP errors, client errors, and timeouts are treated as "no URL"; `find_pdf_url()` continues to the next requested source.
+
 ## Download safeguards
 
 - 30 MB cap by default (`max_bytes`).
-- Content-Type must contain `pdf` or be `application/octet-stream`. HTML responses are rejected with `not_pdf`.
+- Cache files are named `<sha1(doi)>.pdf`. Existing cache hits return immediately unless `skip_cache=True`.
+- Content-Type must contain `pdf` or be `application/octet-stream`. HTML responses and missing content types are rejected with `not_pdf`.
 - Atomic `.part` → `.pdf` rename.
 - 404 / 5xx mapped to short error strings (`http_404`, `network`, `too_large`, `not_pdf`).
 

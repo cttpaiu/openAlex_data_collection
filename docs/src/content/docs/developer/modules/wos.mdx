@@ -12,11 +12,12 @@ Pure helper module for `openalex import-wos`. No DB writes, no network. Just fil
 | Symbol | Kind | Notes |
 |---|---|---|
 | `AGGREGATE_FILENAMES` | frozenset | Master / total-publications sheets we skip |
-| `COUNTRY_FILE_TO_CODE` | dict | Filename stem → ISO-3166 alpha-2 (UK/England/Scotland → GB; Hong Kong → HK then HK→CN downstream) |
+| `COUNTRY_FILE_TO_CODE` | dict | Filename stem → ISO-3166 alpha-2 (UK/England/Scotland → GB; Hong Kong maps as HK before normalisation) |
 | `country_code_for_file(filename)` | fn | Returns ISO code or None (aggregate / unknown) |
 | `normalize_doi(raw)` | fn | Lower, strip URL prefix, strip whitespace |
 | `normalize_title(raw)` | fn | NFKD diacritic-fold + lower + punctuation strip + whitespace collapse |
 | `WosRecord` | `@dataclass(frozen=True)` | 12-field projection of the Excel row |
+| `WosRecord.from_row(row)` | classmethod | Converts a `polars` row dict into a normalised `WosRecord` |
 | `read_wos_country_file(path)` | generator | Yields `WosRecord`s via `polars.read_excel` |
 
 ## WosRecord fields
@@ -29,6 +30,19 @@ publication_year      times_cited
 top_1_percent: bool   top_10_percent: bool
 percentile: float | None
 ```
+
+`from_row()` reads WoS column names directly:
+
+- `DOI` and `Article Title` are preserved raw and also normalised.
+- `Publication Date` and `Times Cited` are parsed as `int | None`; malformed values become `None`.
+- `Percentile in Subject Area` is parsed as `float | None`.
+- `Top 1%` and `Top 10%` are `True` only when the cell parses to integer `1`; blanks become `False`.
+
+## File handling
+
+`country_code_for_file()` passes mapped codes through `normalize_country_code()`, so `Hong Kong.xlsx` returns `CN`, not `HK`.
+
+`read_wos_country_file()` raises `ValueError` for aggregate filenames. Callers should pre-filter with `AGGREGATE_FILENAMES`.
 
 ## In-repo dependencies
 

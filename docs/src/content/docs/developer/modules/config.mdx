@@ -12,15 +12,20 @@ Owns config schema (`AppConfig`), the `openalex init` template generator (`init_
 | Symbol | Kind | Notes |
 |---|---|---|
 | `AppConfig` | `@dataclass` | Frozen-ish config snapshot; lazy-loads keywords / topics / anchors files |
+| `AppConfig.validate_api_key()` | method | Exits if no OpenAlex key is configured or the only key is the template placeholder |
 | `load_config(path)` | fn | Parses `collection.yml` into an `AppConfig`; fatal errors print Rich panel + `SystemExit(1)` |
 | `init_command` | Click cmd | `openalex init` |
 | `DEFAULT_CONFIG` | dict | YAML template seeded by `init` |
 | `DEFAULT_KEYWORDS` / `_TOPICS_HEADER` / `_ANCHORS_HEADER` | str | File templates |
+| `CONFIG_DIR` / `DATA_DIR` | `Path` constants | Default roots for generated config and data directories |
 
 ## Key invariants
 
 - `AppConfig.get_keywords()` collapses **all whitespace** (newlines/tabs/multiple spaces) to single spaces before returning. Required because the raw query is embedded in the OpenAlex `filter` URL parameter.
 - `AppConfig.get_topics()` / `get_anchors()` strip blanks and `#` comments.
+- `load_config()` accepts three OpenAlex key shapes: `api.keys: [...]`, legacy `api.key`, and numbered keys such as `api.key1`, `api.key2`. Numbered keys are sorted numerically and duplicates are skipped.
+- LLM config is normalised on load: `llm.provider` is stripped and lowercased; `llm.model` and `llm.base_url` are stripped.
+- `openalex init` creates `config/`, `data/raw/`, and `data/db/`. Existing files are skipped unless `--force` is set.
 - Topic IDs must match `^T\d{5}$` (validated downstream in `validator.py`).
 - Fatal errors print Rich-formatted message + `raise SystemExit(1)`. Mirror this pattern for new fatal-path errors.
 

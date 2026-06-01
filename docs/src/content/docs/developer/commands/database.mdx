@@ -12,9 +12,16 @@ description: "OpenAlexLoader streams JSONL into the 5-table DuckDB schema."
 - `OpenAlexLoader(db_path, jsonl_path)` — constructor opens the DuckDB connection, creates schema, initialises the `seq_contrib` sequence (starts at `MAX(row_id)+1` for resumes), loads caches.
 - `load_existing_caches()` — pulls existing `authors.id` + `institutions.id` into in-memory sets so reruns skip duplicates without a SELECT per row.
 - `process_record(record)` — main per-paper handler. Skips on PK conflict, otherwise inserts paper + authorship rows.
+- `_load_country_cache()` — loads existing `countries.country_code` values so `_ensure_country()` can avoid repeated inserts.
 - `_ensure_country(code)` — HK→CN remap + insert into `countries` if new.
 - `_insert_institution(data)` — caches by id; idempotent.
 - `_insert_author(data)` — same.
+- `_reconstruct_abstract(inv)` — local OpenAlex inverted-index reconstruction; returns `None` on missing/malformed input.
+- `_first_nonempty_affiliation(raw_affs)` — fallback for institution-less authorships.
+
+## Click flow
+
+When `--input` is omitted, the command prompts for a JSONL path with `data/raw/openalex.jsonl` as the default. When `--output` is omitted, it prompts for a database filename with `quantum_papers.duckdb` as the default. `--db-dir` overrides `cfg.db_dir`; otherwise the output directory comes from config and is created if needed.
 
 ## Schema
 
@@ -29,7 +36,13 @@ description: "OpenAlexLoader streams JSONL into the 5-table DuckDB schema."
 
 ## HK → CN remap
 
-Applied at load time via `normalize_country_code` inside `_insert_institution` and the authorship country fallback. New databases come out of `convert-to-db` already remapped.
+Applied at load time via `normalize_country_code` inside `_insert_institution`, `_ensure_country`, and the authorship country fallback. New databases come out of `convert-to-db` already remapped.
+
+## Authorship handling
+
+- Authorships with institutions produce one contribution per listed institution. Raw affiliation strings are paired by institution index when available.
+- Authorships without institutions still produce one contribution row with `institution_id = NULL`, the first author-level country when present, and the first non-empty raw affiliation string. This keeps rows eligible for later CrossRef/PDF/LLM enrichment.
+- `is_international` is computed from `countries_distinct_count > 1`; missing or zero counts become `False`.
 
 ## Dependencies
 

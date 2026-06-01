@@ -4,19 +4,21 @@ description: "Pull all matching papers into data/raw/openalex.jsonl."
 ---
 
 ```sh
-uv run openalex download [--output PATH] [--resume]
+uv run openalex download [--output PATH] [--no-topics]
 ```
 
 ## What it does
 
-Paginates through every OpenAlex work matching your keywords + topics + date + doc-type filter. Writes one JSON object per line to `data/raw/openalex.jsonl` (~820 MB for the default ~96k quantum-computing corpus). Uses cursor pagination with retry/backoff and concurrent requests.
+Paginates through every OpenAlex work matching your keywords + topics + date + doc-type filter. Writes one JSON object per line to a JSONL file in `data/raw/` unless you pass an absolute or explicit path. Uses cursor pagination with retry/backoff and concurrent requests.
+
+Before downloading, it estimates the total paper count and output size, warns if disk space looks low, and asks for confirmation.
 
 ## Options
 
 | Flag | Default | Description |
 |---|---|---|
-| `--output` | from `collection.yml → output.jsonl_dir` | JSONL output path |
-| `--resume` | off | Skip records already in the output file (by `id`) |
+| `--output`, `-o` | prompt; default `openalex_YYYYMMDD.jsonl` | JSONL output filename/path |
+| `--no-topics` | off | Ignore `topics.txt` and download keyword-only results |
 
 ## Example
 
@@ -33,5 +35,6 @@ Downloading 96,665 records (concurrency=10)…
 ## Gotchas
 
 - 96k papers ≈ 8–15 min on a decent connection. 429 responses trigger exponential backoff automatically.
-- The JSONL file is overwritten unless you pass `--resume`. Back it up if you've spent time getting it.
+- Resume is automatic when a matching `.download_progress.json` sidecar exists beside the output file.
+- If an existing JSONL has no progress sidecar, the command asks whether to abort or overwrite. It will not append blindly because that can duplicate records.
 - `SELECT_FIELDS` in `openalex/api_client.py` controls which OpenAlex fields land in the JSONL. Adding a new field to `convert-to-db` requires extending `SELECT_FIELDS` too.

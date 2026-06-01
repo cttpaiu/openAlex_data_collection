@@ -40,6 +40,8 @@ Same producer/consumer pattern as `impute llm`. Network-bound work (URL resolve 
 
 `openalex/pdf.py::find_pdf_url` tries the `sources` tuple in order. Default: `("unpaywall", "openalex", "arxiv")`. OpenAlex catches arXiv preprints that Unpaywall misses for publisher DOIs.
 
+The command requires `api.email` in config for the Unpaywall polite pool. The HTTP client sends that address in the User-Agent and applies `--request-timeout` to URL resolution and downloads.
+
 ## Stats
 
 Big stats dict: URL counts per source, download outcomes (cached / downloaded / failed_http / failed_network / too_large / not_pdf), text counts, LLM counts (called / failed / no_authors), match counts (orcid / position / mismatch), institution counts (matched_existing / created_synthetic), final write counts (institution_set / country_set / rows_written / papers_enriched).
@@ -53,3 +55,4 @@ Big stats dict: URL counts per source, download outcomes (cached / downloaded / 
 
 - ~5 MB avg per PDF × ~6k eligible papers ≈ 30 GB cache. `rm -rf data/cache/pdfs/` after the run if you need the space.
 - LLM hallucination is constrained by `InstitutionMatcher`. Extracted names that don't match an existing institution get a deterministic synthetic ID, so re-runs converge on the same `IMP_<sha1>` row.
+- `--dry-run` still resolves URLs, downloads/cache-checks PDFs, extracts text, and calls the LLM; it only skips DB writes.

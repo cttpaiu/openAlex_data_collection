@@ -1,0 +1,39 @@
+---
+title: check-anchor
+description: "Command wrapper around anchor parsing, coverage checks, and failure enforcement."
+---
+
+## File
+
+`openalex/commands/check_anchor.py`
+
+## Command flow
+
+`check_anchor_command()`:
+
+1. Loads config with `load_config()` and validates API keys.
+2. Loads keywords and validates them with `check_and_print_keyword_errors()`.
+3. Loads topic IDs unless `--no-topics` is set; malformed topic IDs are filtered out.
+4. Builds the active OpenAlex filter with `build_filter()`.
+5. Calls `enforce_anchor_coverage(cfg, api_filter, context_name)`.
+
+`context_name` is `"Keyword search"` for `--no-topics`, otherwise `"Filtered search (keywords + topics)"`.
+
+## Enforcement helper
+
+`enforce_anchor_coverage()` is also used by `search` and `search-filtered`.
+
+It:
+
+- exits if `cfg.get_anchors()` is empty;
+- parses raw entries with `parse_anchor_entries()`;
+- prints invalid-only input without calling OpenAlex;
+- runs `check_anchor_coverage()` for valid anchors;
+- merges invalid entries back into the final `AnchorCheckResult`;
+- prints `print_anchor_summary()`;
+- raises `SystemExit(1)` when any anchor is invalid or missing.
+
+## Dependencies
+
+- in-repo: `openalex/anchors.py`, `openalex/config.py`, `openalex/utils.py`, `openalex/validator.py`.
+- 3rd-party: `click`, `rich`.

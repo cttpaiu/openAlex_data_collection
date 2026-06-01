@@ -18,11 +18,13 @@ The `import-wos-csv` command enables importing publication records from a Web of
    - Resolves the database path using `_resolve_db_path`.
    - Instantiates `OpenAlexLoader` to ensure the DuckDB schema exists.
    - Loads existing DOIs from the `papers` table to enable deduplication.
+   - Loads OpenAlex API keys, email, and concurrency settings from `--config`.
 
 2. **Parsing**:
    - Reads the CSV using `polars.read_csv`.
-   - Handles `n/a` as null values.
+   - Handles `n/a` as null values and uses `infer_schema_length=10000`.
    - Filters out records whose DOI already exists in the database.
+   - If `--dry-run` is set, stops after printing the new-record count.
 
 3. **OpenAlex Enrichment**:
    - Records with DOIs are processed in batches of 50.
@@ -50,3 +52,4 @@ The `import-wos-csv` command enables importing publication records from a Web of
 
 - **CSV Parsing**: Uses `infer_schema_length=10000` to handle mixed types in columns like `Issue` or `Journal Impact Factor`.
 - **API Failures**: If OpenAlex fetching fails for a batch, the command falls back to stub records for those DOIs.
+- **Stub Rows**: `_insert_stub_record()` does not add `authors`, `institutions`, or `contributions`; it only inserts a minimal `papers` row with `from_wos = TRUE`.

@@ -4,7 +4,7 @@ description: "Fetch a paper's PDF (Unpaywall/OpenAlex/arXiv) and LLM-extract aut
 ---
 
 ```sh
-uv run openalex impute pdf [--db PATH] [--dry-run] [--limit N]
+uv run openalex impute pdf [--config PATH] [--db PATH] [--dry-run] [--limit N]
                            [--source unpaywall,openalex,arxiv]
                            [--concurrent-downloads 4] [--max-pdf-mb 30]
                            [--llm-provider ollama] [--llm-model NAME]
@@ -29,6 +29,8 @@ For each paper with a DOI and at least one missing `institution_id`:
 
 | Flag | Default | Description |
 |---|---|---|
+| `--config` | `config/collection.yml` | Collection configuration used for DB resolution, Unpaywall email, and LLM defaults |
+| `--db` | from config / prompt | DuckDB file |
 | `--dry-run` | off | Preview without DB writes |
 | `--limit` | none | Cap eligible papers |
 | `--source` | `unpaywall,openalex,arxiv` | Comma-separated source order |
@@ -36,7 +38,13 @@ For each paper with a DOI and at least one missing `institution_id`:
 | `--max-pdf-mb` | 30 | Hard cap per PDF |
 | `--cache-dir` | `data/cache/pdfs` | Content-addressed cache |
 | `--skip-cache` | off | Force re-download |
-| `--llm-*` | as in `impute llm` | Same flag surface |
+| `--request-timeout` | 60 | HTTP timeout per request, seconds |
+| `--llm-provider` | from config / `ollama` | `groq` or `ollama` |
+| `--llm-model` | from config / `sorc/qwen3.5-instruct:2b` | LLM model name |
+| `--llm-base-url` | from config / `http://localhost:11434` | Local-provider base URL |
+| `--groq-api-key` | config / env | Required when `--llm-provider groq` |
+| `--llm-max-tokens` | 1500 | Structured-output token cap |
+| `--llm-min-confidence` | 0.0 | Drop lower-confidence author predictions |
 | `--match-threshold` | 0.78 | Institution dedup similarity |
 
 ## Example

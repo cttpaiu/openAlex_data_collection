@@ -25,6 +25,17 @@ Enforces query hygiene before any network call. Catches malformed parens, lowerc
 - No empty groups `()`.
 - No adjacent operators (`AND OR`, `OR OR`, etc. — except `AND NOT` and `OR NOT` which are valid).
 
+## Topic existence checks
+
+`validate_topics_exist()` calls `https://api.openalex.org/topics/{topic_id}` for every supplied ID with `asyncio.gather()`. The session uses:
+
+- `User-Agent: mailto:<email>`.
+- `api_key` header only when a non-placeholder key is supplied.
+- `aiohttp.TCPConnector(limit=50)`.
+- `aiohttp.ClientTimeout(total=30)`.
+
+Each topic maps to `True` only on HTTP 200. HTTP errors, timeouts, and other exceptions map to `False`.
+
 ## In-repo dependencies
 
 None.

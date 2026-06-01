@@ -62,8 +62,8 @@ This walkthrough assumes `uv sync` already finished — see **[Installation](../
 
    ```sh
    uv run openalex impute crossref           # free, low-yield
+   uv run openalex impute llm --stages 1,2,3 # rule + LLM over raw affiliations
    uv run openalex impute pdf                # heavier, much higher yield
-   uv run openalex impute llm --stages 1,2,3 # rule + LLM, three passes
    uv run openalex import-wos                # overlay WoS country counts
    ```
 
@@ -78,4 +78,4 @@ This walkthrough assumes `uv sync` already finished — see **[Installation](../
 | `data/db/*.duckdb` | normalised database |
 | `data/cache/pdfs/` | `impute pdf` cache |
 | `data/cache/institution_embeddings.pt` | sentence-transformers cache for `impute llm` |
-| `data/exports/` | analyst CSVs |
+| `data/doi_overlap/` | optional `compare-dois --export-dir` outputs |

@@ -1,22 +1,30 @@
 ---
 title: sample
-description: "Random reservoir sample for query-quality review before a full download."
+description: "Random sample for query-quality review before a full download."
 ---
 
 ```sh
-uv run openalex sample [--size N] [--csv PATH]
+uv run openalex sample --size N [--csv] [--output PATH] [--seed N] [--reservoir]
 ```
 
 ## What it does
 
-Streams the current filter results and reservoir-samples `N` papers (default 385 — Cochran sample size for ±5% margin at 95% confidence over a finite population). Prints titles + abstracts to stdout, or writes a CSV.
+Fetches a random validation sample from the current filter. By default it uses OpenAlex's fast `sample` parameter. With `--reservoir`, it scans all matching papers and performs statistically valid reservoir sampling.
+
+The command prints an active-filter summary, asks for confirmation unless `--yes` is set, prints a table of sampled papers, and can save a CSV with reconstructed abstracts.
 
 ## Options
 
 | Flag | Default | Description |
 |---|---|---|
-| `--size` | 385 | Sample size |
-| `--csv` | `data/exports/sample.csv` | CSV output path |
+| `--size`, `-n` | required | Sample size |
+| `--config` | `config/collection.yml` | Config file path |
+| `--no-topics` | off | Ignore `topics.txt` and sample keyword-only results |
+| `--yes`, `-y` | off | Skip confirmation prompts |
+| `--csv` | off | Save sample to CSV automatically |
+| `--output`, `-o` | `sample_YYYYMMDD.csv` when saving | CSV output filename |
+| `--seed` | random | Reproduce a sample |
+| `--reservoir` | off | Scan all results and use reservoir sampling |
 
 ## Example
 
@@ -28,5 +36,7 @@ Skim the printed titles. If 90+% look on-topic the query is good. If not, tighte
 
 ## Gotchas
 
-- Sample is **random** per invocation. Two runs return different papers.
-- Streams the full result set under the hood to do reservoir sampling — counts as one full traversal of the filter. Still cheaper than `download` because it reads metadata-only fields.
+- Default mode is fast but uses OpenAlex's sample API, not a full-result reservoir scan.
+- Use `--seed` to reproduce a sample. Without it, the command prints the random seed it used.
+- `--reservoir` scans the full result set, which counts as one full traversal of the filter. It uses metadata-only fields, but it can still take minutes on a large corpus.
+- For `--size > 200`, fast mode makes multiple sample requests with incremented seeds and de-duplicates by OpenAlex ID.

@@ -4,7 +4,8 @@ description: "Three-stage LLM pipeline over raw_affiliation_string."
 ---
 
 ```sh
-uv run openalex impute llm [--db PATH] [--stages 1,2,3] [--dry-run]
+uv run openalex impute llm [--config PATH] [--db PATH] [--stages 1,2,3] [--dry-run]
+                           [--limit N]
                            [--llm-fallback] [--llm-provider ollama|groq]
                            [--llm-model NAME] [--llm-batch-size 20]
                            [--llm-concurrency 2] [--llm-min-confidence 0.0]
@@ -25,6 +26,10 @@ Per-batch commit. Bounded async worker pool. Resumable.
 
 | Flag | Default | Description |
 |---|---|---|
+| `--config` | `config/collection.yml` | Collection configuration used for DB resolution and LLM defaults |
+| `--db` | from config / prompt | DuckDB file |
+| `--dry-run` | off | Preview without DB writes |
+| `--limit` | none | Limit eligible rows per stage |
 | `--stages` | `1,2,3` | Comma-separated subset of stages to run |
 | `--llm-fallback` | off | Required for Stage 1 (purely LLM-driven). Stages 2/3 use it as fallback. |
 | `--llm-provider` | `ollama` (from config) | `groq` or `ollama` |

@@ -1,0 +1,26 @@
+---
+title: build-categorized-query
+description: "Bucketed keyword JSON to bounded boolean query."
+---
+
+## File
+
+`openalex/commands/build_categorized_query.py`
+
+## Function layout
+
+- `CATEGORY_KEYS` defines the four accepted buckets.
+- `_format_group()` strips terms, quotes multi-token or hyphenated terms, joins with `OR`, and wraps the group in parentheses.
+- `compile_bibliometric_query()` implements `(Core OR Methods) OR (Mechanisms AND Applications)`.
+- `_load_config()` requires a top-level JSON object and list-valued category buckets.
+- `_confirm_overwrite()` prompts before replacing output unless `--force` is set.
+- `build_categorized_query_command()` prints bucket counts, warns about ignored uncategorized terms, validates the compiled query, and optionally writes it.
+
+## Precision guard
+
+If mechanisms exist without applications, or applications exist without mechanisms, that broad bucket is skipped. This is intentional: those buckets are only meant to bound each other.
+
+## Dependencies
+
+- in-repo: `openalex.validator.check_and_print_keyword_errors`.
+- 3rd-party: `click`, `questionary`, `rich`.

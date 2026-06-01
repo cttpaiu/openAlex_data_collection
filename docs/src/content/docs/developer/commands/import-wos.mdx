@@ -58,6 +58,7 @@ Three layered guards keep the fuzzy match precise:
 - Matched papers: `_update_existing_paper` uses `COALESCE` on `wos_accession_number` so a second run doesn't overwrite an earlier accession. `from_wos` flag stays TRUE.
 - New papers: `INSERT … ON CONFLICT DO NOTHING` keyed on the deterministic `WOS_<accession>` id.
 - WoS contributions: `_insert_wos_contribution` checks `EXISTS … WHERE source='wos'` before inserting.
+- During one run, newly inserted WoS-only papers are also added to the in-memory DOI/title indexes so later rows can deduplicate against them.
 
 Re-running `import-wos` on the same DB is a no-op for already-imported files.
 
@@ -71,3 +72,4 @@ Re-running `import-wos` on the same DB is a no-op for already-imported files.
 - The fuzzy threshold default (0.95) was tuned manually. Lower it for higher recall at the cost of false positives — sample-audit before applying.
 - WoS contributions have `author_id = NULL, institution_id = NULL`. Joins that expect non-NULL author / institution must filter `WHERE source = 'openalex'`.
 - 36 country files were spot-checked. Files not in `COUNTRY_FILE_TO_CODE` (e.g. a new country export) are skipped with a `[yellow]⚠ skipping[/yellow]` warning.
+- `--dry-run` still counts projected WoS contribution rows and new papers, but it does not mutate the database.
