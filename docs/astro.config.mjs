@@ -32,6 +32,11 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: "init", slug: "user/commands/init" },
+                { label: "extract-keywords", slug: "user/commands/extract-keywords" },
+                {
+                  label: "build-categorized-query",
+                  slug: "user/commands/build-categorized-query",
+                },
                 { label: "validate", slug: "user/commands/validate" },
                 {
                   label: "search / search-filtered",
@@ -43,8 +48,14 @@ export default defineConfig({
                 { label: "download", slug: "user/commands/download" },
                 { label: "convert-to-db", slug: "user/commands/convert-to-db" },
                 { label: "check-db", slug: "user/commands/check-db" },
+                { label: "compare-dois", slug: "user/commands/compare-dois" },
                 { label: "import-wos", slug: "user/commands/import-wos" },
                 { label: "import-wos-csv", slug: "user/commands/import-wos-csv" },
+                {
+                  label: "wos-import-impute",
+                  slug: "user/commands/wos-import-impute",
+                },
+                { label: "export-format", slug: "user/commands/export-format" },
                 {
                   label: "impute crossref",
                   slug: "user/commands/impute-crossref",
@@ -95,9 +106,23 @@ export default defineConfig({
               label: "Command internals",
               collapsed: true,
               items: [
+                { label: "search / search-filtered", slug: "developer/commands/search" },
+                { label: "check-anchor", slug: "developer/commands/check-anchor" },
+                { label: "get-topics", slug: "developer/commands/get-topics" },
+                { label: "sample", slug: "developer/commands/sample" },
+                { label: "validate", slug: "developer/commands/validate" },
+                {
+                  label: "extract-keywords",
+                  slug: "developer/commands/extract-keywords",
+                },
+                {
+                  label: "build-categorized-query",
+                  slug: "developer/commands/build-categorized-query",
+                },
                 { label: "download", slug: "developer/commands/download" },
                 { label: "convert-to-db", slug: "developer/commands/database" },
                 { label: "check-db", slug: "developer/commands/check-db" },
+                { label: "compare-dois", slug: "developer/commands/compare-dois" },
                 {
                   label: "impute-affiliation (llm)",
                   slug: "developer/commands/impute-affiliation",
@@ -109,6 +134,11 @@ export default defineConfig({
                 { label: "impute-pdf", slug: "developer/commands/impute-pdf" },
                 { label: "import-wos", slug: "developer/commands/import-wos" },
                 { label: "import-wos-csv", slug: "developer/commands/import-wos-csv" },
+                {
+                  label: "wos-import-impute",
+                  slug: "developer/commands/wos-import-impute",
+                },
+                { label: "export-format", slug: "developer/commands/export-format" },
               ],
             },
           ],

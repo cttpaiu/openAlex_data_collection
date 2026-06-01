@@ -11,15 +11,21 @@ Verifies that every entry in `config/anchor.txt` (DOI or full title) is present 
 
 | Symbol | Kind | Notes |
 |---|---|---|
-| `check_anchor_coverage(client, anchors, filter_str)` | async fn | Returns `{anchor: bool}` |
-| `print_anchor_panel(coverage)` | fn | Rich-formatted summary |
+| `AnchorEntry` | `@dataclass(frozen=True)` | Parsed anchor with `raw`, `kind` (`doi` or `title`), and `normalized` |
+| `AnchorCheckResult` | `@dataclass(frozen=True)` | Holds `found`, `missing`, and `invalid` anchor lists |
+| `normalize_doi(value)` | fn | Accepts plain DOI plus `doi:`, `https://doi.org/`, and `https://dx.doi.org/` prefixes |
+| `normalize_title(value)` | fn | NFKC + casefold + punctuation-to-space + whitespace collapse |
+| `parse_anchor_entries(entries)` | fn | Splits raw strings into valid `AnchorEntry`s and invalid DOI-looking strings |
+| `check_anchor_coverage(cfg, filter_str, anchors)` | async fn | Returns `AnchorCheckResult` |
+| `print_anchor_summary(result, context_name)` | fn | Rich-formatted summary table plus invalid/missing details |
 
 ## How it works
 
-1. Distinguish DOIs from titles by checking the entry against `^10\.` (DOIs).
-2. For DOIs: hit `/works/doi:<doi>` and check it satisfies the filter (year, doc-type, topics).
-3. For titles: substring/normalised match against `/works?search=<title>` top result.
-4. Returns `True` on hit, `False` otherwise.
+1. `parse_anchor_entries()` first normalises DOI-looking values. Malformed DOI-looking values are returned in the invalid list; other non-empty values are treated as title anchors.
+2. DOI anchors are de-duplicated and checked in batches of 10 by appending `doi:doi1|doi2|...` to the current API filter. The small batch size avoids OpenAlex URL-length failures when the keyword/topic filter is already long.
+3. Title anchors are checked independently with `title.search:<first 10 normalized words>` plus the current API filter. Up to 10 candidate titles are fetched, then compared by exact `normalize_title(...)` equality.
+4. `check_anchor_coverage()` returns found and missing `AnchorEntry` lists. It always returns `invalid=[]`; invalid raw entries are produced by `parse_anchor_entries()` before coverage checks.
+5. `print_anchor_summary()` prints counts, invalid entries, and missing entries. It prints a success line only when no anchors are missing.
 
 ## In-repo dependencies
 

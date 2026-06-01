@@ -1,0 +1,38 @@
+---
+title: search / search-filtered
+description: "Keyword-only and keyword+topic count commands with anchor enforcement."
+---
+
+## File
+
+`openalex/commands/search.py`
+
+## Command flow
+
+Both commands:
+
+1. Load config with `load_config()` and call `cfg.validate_api_key()`.
+2. Load keywords via `cfg.get_keywords()`.
+3. Validate keyword syntax with `check_and_print_keyword_errors()`.
+4. Build the OpenAlex filter with `build_filter()`.
+5. Count results through `_get_count()` / `AsyncOpenAlexClient.get_total_count()`.
+6. Render the shared Rich panel with `print_search_result_panel()`.
+7. Enforce anchors with `enforce_anchor_coverage()`.
+
+`search` builds a keyword/date/type filter only. `search-filtered` also loads `cfg.get_topics()`, exits if none are present, warns and skips malformed topic IDs, then passes the remaining topics to `build_filter()`.
+
+## Dry run
+
+`--dry-run` exits before the OpenAlex count and before anchor enforcement.
+
+- `search --dry-run` validates keyword syntax only.
+- `search-filtered --dry-run` validates keyword syntax and reports how many valid topic IDs were loaded.
+
+## Async boundary
+
+`_get_count(cfg, api_filter)` is the only async helper. It opens `AsyncOpenAlexClient` with `per_page=1`, configured retries, and the configured API-key list.
+
+## Dependencies
+
+- in-repo: `openalex/api_client.py`, `openalex/commands/check_anchor.py`, `openalex/config.py`, `openalex/utils.py`, `openalex/validator.py`.
+- 3rd-party: `click`, `rich`.

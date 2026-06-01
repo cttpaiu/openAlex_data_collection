@@ -1,0 +1,45 @@
+---
+title: sample
+description: "Fast OpenAlex sampling plus optional full-result reservoir sampling."
+---
+
+## File
+
+`openalex/commands/sample.py`
+
+## Command flow
+
+`sample_command()`:
+
+1. Loads config and validates API keys.
+2. Loads and validates keywords.
+3. Loads valid topic IDs unless `--no-topics` is set.
+4. Prints the active filter summary.
+5. Prompts for confirmation unless `--yes` is set.
+6. Builds the OpenAlex filter and fetches total count.
+7. Runs `_fetch_sample_fast()` by default or `_reservoir_sample()` when `--reservoir` is set.
+8. Prints a Rich table.
+9. Saves CSV when `--csv` is set, or optionally prompts to save when interactive.
+
+## Field projection
+
+Both sample paths request `SAMPLE_FIELDS`:
+
+```python
+id,doi,title,publication_year,type,primary_topic,
+abstract_inverted_index,cited_by_count,fwci,
+institutions_distinct_count,countries_distinct_count
+```
+
+CSV output reconstructs `abstract_text` with `openalex.utils.reconstruct_abstract()`.
+
+## Sampling modes
+
+`_fetch_sample_fast()` uses OpenAlex's `sample` query parameter. Since the API returns at most 200 sampled works per request and sample requests do not cursor-paginate, `k > 200` triggers multiple requests with `seed + page`; duplicate OpenAlex IDs are filtered out.
+
+`_reservoir_sample()` uses classic reservoir sampling over cursor-paginated results. It gives every matching paper equal probability, but scans the full result set.
+
+## Dependencies
+
+- in-repo: `openalex/api_client.py`, `openalex/config.py`, `openalex/utils.py`, `openalex/validator.py`.
+- 3rd-party: `click`, `questionary`, `rich`.

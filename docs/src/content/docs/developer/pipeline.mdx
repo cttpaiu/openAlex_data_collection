@@ -19,6 +19,8 @@ OpenAlexLoader  ──► papers + authors + institutions + countries + contribu
             │
             ▼
 (optional) import-wos     ──► papers.from_wos, contributions.source='wos'
+(optional) import-wos-csv ──► papers.from_wos + OpenAlex enrichment/stubs
+(optional) compare-dois   ──► DOI overlap report/export
 (optional) impute crossref ──► contributions.raw_affiliation_string
 (optional) impute pdf      ──► contributions.{institution_id,country_code}
 (optional) impute llm      ──► same, three-stage

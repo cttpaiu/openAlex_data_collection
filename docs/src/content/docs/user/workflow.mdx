@@ -19,9 +19,12 @@ Run these in order on a fresh clone. Each step is idempotent: re-running picks u
 | 10 | `openalex check-db` | Coverage health report | recommended |
 | 11 | `openalex import-wos` | Overlay WoS country exports | optional |
 | 12 | `openalex import-wos-csv` | Import WoS CSV records + OpenAlex enrichment | optional |
-| 13 | `openalex impute crossref` | Restore raw affiliations via CrossRef | optional |
-| 14 | `openalex impute pdf` | LLM-extract from paper PDFs | optional |
-| 15 | `openalex impute llm` | Three-stage LLM imputation on raw affiliations | optional |
+| 13 | `openalex compare-dois` | Compare DB DOI coverage against a WoS CSV | optional |
+| 14 | `openalex wos-import-impute` | One-shot WoS CSV ingest + OpenAlex fetch + impute | optional |
+| 15 | `openalex impute crossref` | Restore raw affiliations via CrossRef | optional |
+| 16 | `openalex impute pdf` | LLM-extract institutions/countries from paper PDFs | optional |
+| 17 | `openalex impute llm` | Three-stage LLM imputation on raw affiliations | optional |
+| 18 | `openalex export-format` | Placeholder for future formatted exports | not implemented |
 
 ## Iteration loop
 
@@ -29,10 +32,10 @@ Steps 3–7 form a loop: tighten the query, re-count, re-sample, repeat. Only pr
 
 ## Enrichment order
 
-If you enrich, the recommended order is **crossref → pdf → llm**. Reasoning:
+If you enrich, the recommended order is **crossref → llm → pdf**, then re-run `check-db`. Reasoning:
 
 1. CrossRef is cheap (HTTP only) but low yield on physics journals. Run first to get the easy wins.
-2. PDF + LLM is expensive but highest yield (~70% recall on OA papers). Runs after CrossRef has populated whatever it can.
-3. `impute llm --stages 1,2,3` works only on `raw_affiliation_string` already present. CrossRef + PDF populate that field, so they should run first.
+2. `impute llm --stages 1,2,3` converts existing `raw_affiliation_string` values into institution and country data.
+3. PDF + LLM is expensive but high yield on open-access papers. It writes `institution_id` and `country_code` directly, so it is a good later pass for rows still missing institutions.
 
 Per-batch commits in every imputation command mean you can Ctrl-C mid-run and resume.

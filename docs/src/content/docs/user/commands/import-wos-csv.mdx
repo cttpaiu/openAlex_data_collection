@@ -4,7 +4,7 @@ description: "Import Web of Science records from a CSV file, fetching full data 
 ---
 
 ```sh
-uv run openalex import-wos-csv INPUT_CSV [--db DB_PATH] [--limit LIMIT] [--dry-run]
+uv run openalex import-wos-csv INPUT_CSV [--config PATH] [--db DB_PATH] [--limit LIMIT] [--dry-run]
 ```
 
 ## What it does
@@ -22,9 +22,10 @@ Import records from a Web of Science (WoS) CSV export into the DuckDB database. 
 | Flag | Default | Description |
 |---|---|---|
 | `INPUT_CSV` | (required) | Path to the WoS CSV file |
-| `--db` | from config | Path to the DuckDB database file |
+| `--config` | `config/collection.yml` | Collection configuration used for DB resolution and OpenAlex API settings |
+| `--db` | from config / prompt | Path to the DuckDB database file |
 | `--limit` | none | Limit the number of rows to process from the CSV |
-| `--dry-run` | off | Preview new records without fetching from OpenAlex or inserting into DB |
+| `--dry-run` | off | Preview how many new records would be processed, without fetching from OpenAlex or inserting into DB |
 
 ## Example
 
@@ -45,3 +46,4 @@ Found 10 new records in CSV.
 - **OpenAlex Fetching**: DOIs are batched (size 50) and fetched via `AsyncOpenAlexClient` for efficiency.
 - **Normalization**: DOIs are normalized (lower-cased, prefix removed) before comparison and insertion.
 - **Schema Handling**: Automatically ensures the database schema exists and includes WoS-specific columns (`from_wos`, `wos_accession_number`).
+- **Stub Scope**: Stub records populate only the `papers` table. Author, institution, and contribution tables are left for later enrichment/imputation.

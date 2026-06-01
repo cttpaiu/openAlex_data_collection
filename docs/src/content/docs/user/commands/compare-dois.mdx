@@ -1,0 +1,47 @@
+---
+title: compare-dois
+description: "Compare DuckDB paper DOIs against a Web of Science CSV export."
+---
+
+```sh
+uv run openalex compare-dois [--db PATH] [--wos-csv PATH] [--export-dir DIR]
+```
+
+## What it does
+
+Compares normalized DOI sets from:
+
+- `papers.doi` in the DuckDB database
+- the `DOI` column in a Web of Science CSV export
+
+It prints a Rich overlap table showing DOIs common to both sources, only in DuckDB, and only in the WoS CSV. By default it also prints a few sample unmatched DOIs.
+
+## Example
+
+```sh
+uv run openalex compare-dois \
+  --db data/quantum_papers.duckdb \
+  --wos-csv data/wos_export.csv \
+  --export-dir data/doi_overlap
+```
+
+With `--export-dir`, two CSVs may be written:
+
+- `wos_dois_missing_from_db.csv` — full WoS rows whose normalized DOI is absent from DuckDB
+- `db_dois_missing_from_wos.csv` — normalized DuckDB DOIs absent from the WoS export
+
+## Inputs
+
+The WoS CSV must contain a `DOI` column. If an `Article Title` column is present, it is used in the printed sample for WoS-only records.
+
+Both sides use the same DOI normalization helper as the WoS import tools.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--config` | `config/collection.yml` | Collection configuration used for the default DB directory |
+| `--db` | from config / prompt | DuckDB file to compare |
+| `--wos-csv` | prompt, default text `data/` | Web of Science CSV export |
+| `--export-dir` | none | Directory for unmatched DOI CSV exports |
+| `--no-samples` | false | Skip example unmatched DOI output |

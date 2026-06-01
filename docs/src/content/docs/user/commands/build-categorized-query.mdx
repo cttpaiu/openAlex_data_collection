@@ -1,0 +1,52 @@
+---
+title: build-categorized-query
+description: "Compile a bucketed JSON keyword config into a bounded boolean query."
+---
+
+```sh
+uv run openalex build-categorized-query CONFIG_JSON [--output config/keywords.txt]
+```
+
+## What it does
+
+Builds a boolean query from four hand-curated keyword buckets:
+
+- `1_core_technology`
+- `2_methods_tools`
+- `3_mechanisms`
+- `4_applications`
+
+The bounding logic is:
+
+```text
+(Core OR Methods) OR (Mechanisms AND Applications)
+```
+
+Core and method terms can stand alone. Mechanisms and applications are only used together, because either bucket alone is usually too broad.
+
+## Input JSON shape
+
+```json
+{
+  "1_core_technology": ["quantum sensing"],
+  "2_methods_tools": ["spin squeezing"],
+  "3_mechanisms": ["entanglement"],
+  "4_applications": ["magnetometry"],
+  "uncategorized_tfidf_candidates": ["ignored term"]
+}
+```
+
+`uncategorized_tfidf_candidates` is allowed, but ignored with a warning.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `CONFIG_JSON` | required | Bucketed JSON file |
+| `--output` | `config/keywords.txt` | Compiled query destination |
+| `--no-write` | off | Print the query only |
+| `--force` | off | Overwrite output without prompting |
+
+## Notes
+
+Multi-word and hyphenated terms are quoted automatically. The compiled query is run through the keyword validator; if validation fails, the command warns but still writes the file for inspection.

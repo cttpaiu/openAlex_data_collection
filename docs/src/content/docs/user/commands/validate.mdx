@@ -4,12 +4,14 @@ description: "Sanity-check keywords.txt + topics.txt before any network call."
 ---
 
 ```sh
-uv run openalex validate [--no-api]
+uv run openalex validate [--config PATH] [--no-api]
 ```
 
 ## What it does
 
 Lints `config/keywords.txt` and `config/topics.txt`. Catches malformed queries before they hit OpenAlex.
+
+It prints file size/word-count diagnostics for the keyword query and a short preview when keywords are valid. `topics.txt` is optional; missing or empty topic files warn but do not fail validation.
 
 **Keywords:** balanced parentheses, even number of double quotes, uppercase `AND` / `OR` / `NOT`, no empty `()`, no adjacent operators (with quoted phrases stripped first so `"cloning and characterization"` is fine).
 
@@ -17,9 +19,10 @@ Lints `config/keywords.txt` and `config/topics.txt`. Catches malformed queries b
 
 ## Options
 
-| Flag | Description |
-|---|---|
-| `--no-api` | Offline check only — no network |
+| Flag | Default | Description |
+|---|---|---|
+| `--config` | `config/collection.yml` | Config file path |
+| `--no-api` | off | Offline check only; skip OpenAlex topic-existence checks |
 
 ## Example
 
@@ -35,4 +38,5 @@ uv run openalex validate --no-api
 ## Gotchas
 
 - Topic IDs that match the regex but don't exist on OpenAlex slip through `--no-api`. Run without the flag at least once.
+- API-key validation only happens when the online topic check runs. `--no-api` can validate local files before you have a working key.
 - Lowercase `or` / `and` inside non-quoted text fails. Move it into a quoted phrase if it's meant literally.

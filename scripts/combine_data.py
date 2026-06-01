@@ -97,7 +97,7 @@ def get_country_name(code):
             if "," in name:
                 name = name.split(",")[0]
             return name
-    except:
+    except Exception:
         pass
     return code
 
@@ -208,12 +208,13 @@ def main():
         qsm_df, 
         on=["doi", "country_code"], 
         how="full", 
-        suffix="_qsm"
+        suffix="_qsm",
+        coalesce=True,
     )
     
     # Resolve Year and Boolean flags
     combined = combined.with_columns([
-        pl.coalesce(["country_code", "country_code_qsm"]).alias("code"),
+        pl.col("country_code").alias("code"),
         pl.coalesce(["year_qsm", "year"]).alias("final_year"),
         (pl.col("top1").fill_null(False) | pl.col("top1_qsm").fill_null(False)).alias("final_top1"),
         (pl.col("top10").fill_null(False) | pl.col("top10_qsm").fill_null(False)).alias("final_top10")

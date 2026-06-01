@@ -9,30 +9,38 @@ description: "Async download loop wiring AsyncOpenAlexClient + BufferedWriter."
 
 ## What it does
 
-Single async coroutine `_download_async`:
+The Click handler does the pre-flight work, then calls `asyncio.run(_run_download(...))`:
 
-1. Resolves config via `load_config()` + builds the filter via `build_filter()`.
-2. Opens `AsyncOpenAlexClient` + `BufferedWriter` as nested async context managers.
-3. `cursor = "*"`; loops `fetch_page(filter, cursor)` until `meta.next_cursor` is None.
-4. Each page's `results[]` is JSON-serialised line by line into the writer.
-5. Rich Progress bar advanced by `len(results)` per page.
-
-Wrapped at the Click handler via `asyncio.run(_download_async(...))`.
+1. Resolves config via `load_config()` and validates API keys.
+2. Loads keywords, optionally loads valid topics, then builds the filter via `build_filter()`.
+3. Estimates total count with `_get_count()` / `AsyncOpenAlexClient.get_total_count()`.
+4. Estimates output size with `BYTES_PER_PAPER = 8_700` and warns when free space is below `2x` the estimate.
+5. Prompts for confirmation and, when `--output` is omitted, prompts for an output filename.
+6. Runs `_run_download()`, which opens `AsyncOpenAlexClient` + append-mode `BufferedWriter`.
+7. Splits topic filters into batches of `cfg.batch_size_topics`; keyword-only downloads use one batch.
+8. Each batch paginates with cursor-based `fetch_page()`, writes every result as one JSONL line, and saves cursor progress after each page.
 
 ## Resumability
 
-`--resume` reads the existing JSONL once, populates a `set` of `id`s, then skips writing anything already present.
+Resume is automatic and cursor-based. `_progress_file(output_path)` maps `foo.jsonl` to `foo.download_progress.json`. The sidecar stores `batches[batch_key].last_cursor`, `done`, and informational `topics`.
+
+If the JSONL exists and the sidecar exists, `_run_download()` counts existing lines for the progress bar and appends from the saved cursor positions.
+
+If the JSONL exists but no progress sidecar exists, the command refuses to append blindly. It prompts the user to abort or overwrite the existing file.
 
 ## Idempotency
 
-The JSONL is **not** an idempotent target — re-running without `--resume` overwrites. Use `--resume` to safely retry mid-failure.
+The JSONL target is append-only during a tracked run. Completed batches are skipped on re-run; incomplete batches resume from their last saved cursor. When all batches are complete, the sidecar is removed.
+
+Cursor state is advanced after a page is written. A crash mid-page can still duplicate that page on retry, so the sidecar protects normal batch restarts but is not a transactional JSONL ledger.
 
 ## Dependencies
 
 - in-repo: `openalex/config.py`, `openalex/api_client.py`, `openalex/utils.py::build_filter`.
-- 3rd-party: `aiohttp`, `rich`.
+- 3rd-party: `click`, `questionary`, `rich`.
 
 ## Gotchas
 
 - The JSONL projection is governed by `AsyncOpenAlexClient.SELECT_FIELDS`. Adding a new field requires editing **both** `SELECT_FIELDS` and `convert-to-db`.
 - 429 backoff is per-request (handled inside `AsyncOpenAlexClient.fetch_page`). No global cooldown.
+- `--no-topics` removes the topic filter and uses one cursor stream.

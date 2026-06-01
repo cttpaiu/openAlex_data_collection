@@ -31,6 +31,8 @@ Each stage tracks: `eligible`, `matched_existing`, `created_synthetic`, `country
 
 `country_imputation_audit` — insert-only log per write. Stage column distinguishes `1` / `2` / `3` / `pdf` / `crossref` runs.
 
+When the command is not a dry run, it also runs `_merge_hong_kong_to_china()` as a legacy safety net for older databases created before HK→CN normalization moved to load time.
+
 ## Retry path
 
 Stage 1 batches with truncated LLM responses (qwen 2b often drops trailing items when `num_predict` runs out) now re-query the missing `row_id`s once. See `_process_stage1_batch` `if missing_ids` branch.
@@ -40,6 +42,7 @@ Stage 1 batches with truncated LLM responses (qwen 2b often drops trailing items
 - **row_id schema** — Stage 2 sends `institution_id` (string) as the LLM prompt's row_id. Originally `row_id: int` rejected every response. Now `row_id: int | str`. See `openalex/imputation.py::_coerce_row_id`.
 - **status advisory** — Stages 2/3 used to gate on `pred.status == "unambiguous"`. qwen 2b often omits status; loosened to "accept any non-null country_code".
 - **Period-form aliases** — GB / US / CN ISO codes now match `u.k.`, `u.k`, `u.s.a`, `p.r.c.`, `p.r.c` literals in raw text.
+- **Stage 1 gating** — Stage 1 is skipped unless `--llm-fallback` is supplied, because it is entirely LLM-driven.
 
 ## Dependencies
 

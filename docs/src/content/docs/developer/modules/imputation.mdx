@@ -22,6 +22,8 @@ Shared infrastructure for every imputation source. Holds:
 | `COUNTRY_ALIASES` | dict | code → tuple of alias strings, including period-form variants (`u.k.`, `u.s.a`, `p.r.c.`) |
 | `COUNTRY_PATTERNS` | list | Precompiled `(code, term, re.Pattern)` triples |
 | `infer_country_from_affiliation(text)` | fn | Returns `CountryInference(country_code, status, matched_terms)`; status is `unambiguous` / `ambiguous` / `none` |
+| `_coerce_row_id(value)` | fn | Internal helper; preserves numeric contribution row IDs and string institution IDs |
+| `_to_str_or_none(value)` | fn | Internal helper; strips values and maps blanks to `None` |
 | `InstitutionPrediction`, `CountryPrediction` | dataclass | Internal DB-write carriers |
 | `InstitutionPredictionItem` / `Response` | pydantic | Stage 1 schema; `row_id: int \| str` |
 | `CountryPredictionItem` / `Response` | pydantic | Stage 2/3 schema |
@@ -30,9 +32,32 @@ Shared infrastructure for every imputation source. Holds:
 | `synthetic_institution_id(name)` | fn | `IMP_<sha1[:10]>`; deterministic |
 | `InstitutionMatcher` | class | sentence-transformers cosine; persisted embedding cache |
 
+## Prediction coercion
+
+`InstitutionPrediction.from_dict()` / `.from_pydantic()` and `CountryPrediction.from_dict()` / `.from_pydantic()` are the boundary between LLM/Pydantic objects and DB-write code:
+
+- `row_id` goes through `_coerce_row_id()`: `None → 0`, numeric strings become `int`, non-numeric strings stay strings. This is required because Stage 2 uses `institution_id` as the echoed row key.
+- text fields go through `_to_str_or_none()`, so blanks become `None`.
+- country codes are uppercased here, but they are **not** HK→CN remapped here. DB write paths still need `normalize_country_code()`.
+- missing confidence becomes `0.0`; missing country status becomes `"none"` for `CountryPrediction`.
+
+## Country inference
+
+Country alias patterns use custom word boundaries: `(?<![A-Za-z0-9])... (?![A-Za-z0-9])`. This catches punctuation-delimited country names without matching inside longer words.
+
+`infer_country_from_affiliation()` returns:
+
+- `unambiguous` with a normalised country code when exactly one country code matched.
+- `ambiguous` with `country_code=None` when multiple different country codes matched.
+- `none` with `country_code=None` for blank input or no matches.
+
 ## InstitutionMatcher cache
 
 `InstitutionMatcher.index(records)` writes to `data/cache/institution_embeddings.pt` (+ `.sha1` sidecar). Re-runs detect identical input via the fingerprint and skip re-encoding. The cached tensor is moved to the model's device on load so query and corpus share a device.
+
+`index([])` clears the in-memory embeddings. Cache read/write failures are swallowed; matching still works by re-encoding when possible.
+
+`top_k(query, k=3)` returns scored `InstitutionMatch` objects sorted by cosine score. `find_match(query, threshold=0.78)` returns only the best candidate when it meets the threshold.
 
 ## Response-schema model validator
 
@@ -44,6 +69,8 @@ def _drop_incomplete(cls, data):
 ```
 
 This is what saves us from a single truncated trailing `{}` blowing up the whole batch.
+
+`PdfAuthorResponse` uses the same idea but filters incomplete author rows by missing `position`.
 
 ## In-repo dependencies
 

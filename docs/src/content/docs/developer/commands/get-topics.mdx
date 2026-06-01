@@ -1,0 +1,51 @@
+---
+title: get-topics
+description: "Cursor-paginated OpenAlex topic group-by plus optional metadata enrichment and CSV export."
+---
+
+## File
+
+`openalex/commands/topics.py`
+
+## Command flow
+
+`get_topics_command()`:
+
+1. Loads config and validates the API key.
+2. Loads keywords and validates keyword syntax.
+3. Builds a keyword/date/type filter with `build_filter()`; it does not apply `topics.txt` unless `--filter-topics` is set later.
+4. Calls `_fetch_all_groups(cfg, api_filter)`.
+5. Optionally filters the returned groups to topic IDs in `cfg.get_topics()`.
+6. Enriches topic metadata when `--details` or `--csv` is set.
+7. Prints a Rich table or writes CSV.
+
+## Group pagination
+
+`_fetch_all_groups()` calls `AsyncOpenAlexClient.fetch_group_by(api_filter, "primary_topic.id", cursor=cursor)` until `meta.next_cursor` is absent. Results are sorted descending by `count`.
+
+OpenAlex returns at most 200 groups per page, so this must stay cursor-based.
+
+## Metadata enrichment
+
+`_enrich_topic_data()` fetches topic details in parallel with `fetch_topic_details(g["key"])`. It fills:
+
+- `display_name`
+- `description`
+- `keywords`
+- `domain`
+- `field`
+- `subfield`
+
+If details are missing, it falls back to `key_display_name` or the topic ID and empty metadata fields.
+
+## Output rules
+
+- More than 50 groups with no `--details` and no `--csv`: print top 20 and suggest `--details --csv`.
+- `--csv`: save all current groups.
+- `--details` with more than 50 groups and no `--csv`: auto-save to CSV to avoid a huge table.
+- `--output` bypasses the CSV filename prompt.
+
+## Dependencies
+
+- in-repo: `openalex/api_client.py`, `openalex/config.py`, `openalex/utils.py`, `openalex/validator.py`.
+- 3rd-party: `click`, `rich`.

@@ -19,6 +19,11 @@ The module docstring on the `cli()` function is the **canonical workflow order**
 ## Registration pattern
 
 ```python
+cli.add_command(extract_keywords_command)
+cli.add_command(build_categorized_query_command)
+cli.add_command(compare_dois_command)
+cli.add_command(wos_import_impute_command)
+
 from openalex.commands.impute_affiliation import impute_affiliation_command
 ...
 impute_group.add_command(enrich_crossref_command)   # canonical name "crossref"
@@ -30,6 +35,10 @@ cli.add_command(impute_group)
 cli.add_command(enrich_crossref_command, name="enrich-crossref")
 cli.add_command(impute_affiliation_command, name="impute-affiliation")
 ```
+
+The command decorators on the underlying command functions control the canonical CLI names. The subgroup registrations rely on `@click.command("crossref")`, `@click.command("llm")`, and `@click.command("pdf")`.
+
+`click` is pinned in `pyproject.toml` because the old top-level aliases use `add_command(..., name="...")`.
 
 ## In-repo dependencies
 

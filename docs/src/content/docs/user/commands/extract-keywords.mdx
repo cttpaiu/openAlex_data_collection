@@ -1,0 +1,52 @@
+---
+title: extract-keywords
+description: "Run TF-IDF over title and abstract fields to produce ranked keyword candidates."
+---
+
+```sh
+uv run openalex extract-keywords INPUT_FILE [--output PATH] [--format json|csv|txt]
+```
+
+## What it does
+
+Reads a CSV or Excel file, combines each row's title and abstract text, and scores candidate terms with TF-IDF. The default output is `config/tfidf_keywords.json`.
+
+Use it as an early exploration tool before editing the actual search query in `config/keywords.txt`, or before hand-bucketing terms for `build-categorized-query`.
+
+## Supported inputs
+
+- `.csv`
+- `.xlsx`
+- `.xls`
+
+By default it expects Web of Science style columns:
+
+- `Article Title`
+- `Abstract`
+
+Rows with fewer than 20 combined title/abstract characters are ignored.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `INPUT_FILE` | required | CSV/XLSX/XLS source file |
+| `--title-col` | `Article Title` | Title column name |
+| `--abstract-col` | `Abstract` | Abstract column name |
+| `--top-n` | 50 | Number of ranked terms to keep |
+| `--ngram-min` | 2 | Minimum n-gram length |
+| `--ngram-max` | 3 | Maximum n-gram length |
+| `--min-df` | 2 | Minimum document frequency |
+| `--max-df` | 0.85 | Maximum document frequency proportion |
+| `--format` | `json` | Output format: `json`, `csv`, or `txt` |
+| `--output` | `config/tfidf_keywords.<format>` | Output file path |
+| `--no-write` | off | Print the table only |
+| `--force` | off | Overwrite output without prompting |
+
+## Example
+
+```sh
+uv run openalex extract-keywords data/wos_export.csv --top-n 100 --force
+```
+
+The JSON output includes `_meta` with the source path and TF-IDF parameters, plus a `keywords` array of `{term, score}` objects.

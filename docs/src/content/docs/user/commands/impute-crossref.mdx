@@ -4,7 +4,7 @@ description: "Restore raw_affiliation_string from CrossRef via DOI lookup."
 ---
 
 ```sh
-uv run openalex impute crossref [--db PATH] [--dry-run] [--limit N]
+uv run openalex impute crossref [--config PATH] [--db PATH] [--dry-run] [--limit N]
                                 [--concurrent-requests 10]
 ```
 
@@ -28,6 +28,8 @@ Does **not** set `institution_id` or `country_code`. Only fills `raw_affiliation
 
 | Flag | Default | Description |
 |---|---|---|
+| `--config` | `config/collection.yml` | Collection configuration used for DB resolution and CrossRef polite-pool email |
+| `--db` | from config / prompt | DuckDB file |
 | `--dry-run` | off | Preview, no DB writes |
 | `--limit` | none | Cap eligible papers |
 | `--concurrent-requests` | 10 | Polite under CrossRef's ~50 req/s |

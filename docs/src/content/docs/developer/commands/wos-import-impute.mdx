@@ -1,0 +1,33 @@
+---
+title: wos-import-impute
+description: "Combined WoS CSV ingest, OpenAlex enrichment, stub fallback, and chained impute."
+---
+
+## File
+
+`openalex/commands/wos_import_impute.py`
+
+## Pipeline
+
+1. `wos_import_impute_command()` prompts or resolves CSV/DB paths and loads config.
+2. `_ingest()` opens `OpenAlexLoader`, ensures `papers.source`, `from_wos`, and `wos_accession_number`, then reads existing normalized DOIs.
+3. The WoS CSV is read with Polars and filtered to rows whose DOI is absent or missing.
+4. New rows with DOIs are fetched from OpenAlex in batches of 50 using `AsyncOpenAlexClient.fetch_all_pages()`.
+5. Fetched OpenAlex records are inserted through `OpenAlexLoader.process_record()` and tagged `source='openalex', from_wos=TRUE`.
+6. Rows with no DOI or no OpenAlex hit are written by `_insert_wos_stub()` as `source='web_of_science', from_wos=TRUE`.
+7. If the import succeeds and `--no-impute` is not set, `ctx.invoke()` runs `impute_affiliation_command` in-process.
+
+## Concurrency and writes
+
+OpenAlex fetches run concurrently. DuckDB writes are serialized with an async lock because the loader connection is single-threaded.
+
+Fatal upstream errors such as budget exhaustion or rejected keys set an abort flag, let in-flight tasks drain, close the loader, print a resume message, and skip chained imputation.
+
+## Stub rows
+
+Stub IDs use `WOS_<AccessionNumber>` when available, otherwise a title hash `WOS_T<sha1[:12]>`. Stub rows populate only `papers` metadata; author, institution, and contribution detail depends on later enrichment.
+
+## Dependencies
+
+- in-repo: `openalex.api_client.AsyncOpenAlexClient`, `openalex.commands.database.OpenAlexLoader`, `openalex.commands.impute_affiliation.impute_affiliation_command`, `openalex.wos.normalize_doi`.
+- 3rd-party: `click`, `polars`, `questionary`, `rich`.

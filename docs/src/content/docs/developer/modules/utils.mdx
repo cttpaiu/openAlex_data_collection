@@ -27,6 +27,13 @@ Tiny utility module — three exported helpers used across multiple commands.
 
 Never hand-concatenate filter strings — keep them going through `build_filter`. Tests in `tests/test_keywords.py` lock in the format.
 
+`build_filter()` does not normalise keyword whitespace itself. The expected flow is `AppConfig.get_keywords()` first, then `build_filter()`.
+
+## Other helper contracts
+
+- `reconstruct_abstract()` accepts OpenAlex's `{word: [positions...]}` inverted-index shape, sorts by numeric position, joins words with spaces, and returns `""` for missing or malformed input.
+- `print_search_result_panel()` includes the topics line only when `topics_count` is not `None`; this lets `search` and `search-filtered` share the renderer.
+
 ## In-repo dependencies
 
 None.

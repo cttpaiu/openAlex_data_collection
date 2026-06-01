@@ -13,7 +13,7 @@ description: "What the CLI does, who it is for, and the shape of the pipeline."
 
 ## What it builds
 
-A DuckDB file at `data/db/<your-name>.duckdb` with five tables: `papers`, `authors`, `institutions`, `countries`, `contributions` (paper ↔ author ↔ institution links). Optional WoS overlay adds two columns on `papers` plus paper-level country markers.
+A DuckDB file at `data/db/<your-name>.duckdb` with five tables: `papers`, `authors`, `institutions`, `countries`, `contributions` (paper ↔ author ↔ institution links). Optional WoS tooling can overlay per-country Excel exports, import a consolidated CSV, compare DOI overlap, or run a one-shot CSV import plus imputation path.
 
 ## What it does not do
 
@@ -42,8 +42,8 @@ keywords + topics
    check-db ── coverage report
        │
        ▼ (optional enrichment)
-   import-wos ── overlay WoS country counts
-   impute crossref / pdf / llm ── fill missing institution + country
+   import-wos / import-wos-csv / compare-dois
+   impute crossref / llm / pdf ── fill missing institution + country
 ```
 
 Continue to **[Installation →](../installation/)** or jump straight to the **[Quick Start →](../quick-start/)**.

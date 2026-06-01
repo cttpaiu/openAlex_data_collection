@@ -4,19 +4,22 @@ description: "Discover OpenAlex topic IDs that appear in your keyword results."
 ---
 
 ```sh
-uv run openalex get-topics [--details] [--csv]
+uv run openalex get-topics [--details] [--csv] [--filter-topics] [--output PATH]
 ```
 
 ## What it does
 
-Runs a `group_by=primary_topic.id` query against your current keyword filter and lists topic IDs ranked by paper count. Use this to populate `topics.txt` with the topics that actually matter to your corpus.
+Runs a cursor-paginated `group_by=primary_topic.id` query against your current keyword filter and lists topic IDs ranked by paper count. Use this to populate `topics.txt` with the topics that actually matter to your corpus.
 
 ## Options
 
-| Flag | Description |
-|---|---|
-| `--details` | Include each topic's full display name + description |
-| `--csv` | Write `topics_discovered.csv` to the cwd |
+| Flag | Default | Description |
+|---|---|---|
+| `--config` | `config/collection.yml` | Config file path |
+| `--details` | off | Enrich topics with display name, description, keywords, and hierarchy |
+| `--csv` | off | Save results to CSV |
+| `--filter-topics` | off | Only show topics already listed in `topics.txt` |
+| `--output`, `-o` | prompt; default `topics_YYYYMMDD.csv` | CSV filename; skips the prompt |
 
 ## Example
 
@@ -33,5 +36,7 @@ T11432  Advanced Frequency and Time Standards                2,903
 
 ## Gotchas
 
-- 500-row default cap. Pass `--details --csv` to inspect the long tail.
+- Plain output shows the top 20 when many topics are returned. Pass `--details --csv` to inspect and save the full list.
+- If `--details` returns more than 50 topics and `--csv` is not set, the command auto-saves to CSV instead of printing a huge table.
+- CSV output includes `topic_id`, display name, description, keywords, domain, field, subfield, paper count, and percentage.
 - A topic ID surfaced here is not automatically added to `topics.txt`. Copy the IDs you want; comment out the rest.

@@ -25,8 +25,8 @@ Idempotent: re-running against an existing DB **appends** new papers and skips o
 
 | Flag | Default | Description |
 |---|---|---|
-| `--input`, `-i` | `data/raw/openalex.jsonl` | JSONL input path |
-| `--output`, `-o` | `quantum_papers.duckdb` | DB filename |
+| `--input`, `-i` | prompt; default `data/raw/openalex.jsonl` | JSONL input path |
+| `--output`, `-o` | prompt; default `quantum_papers.duckdb` | DB filename |
 | `--db-dir` | from config | Output directory |
 
 ## Example
@@ -50,5 +50,6 @@ Loading: data/raw/openalex.jsonl → data/db/quantum_sensing.duckdb
 ## Gotchas
 
 - Hong Kong → China remap (`HK → CN`) is applied at load time. Subsequent re-runs of `impute llm` won't unwind it.
+- Contributions are still created for authorships with no institution when OpenAlex has an author-level country or raw affiliation string. Those rows are useful for later imputation.
 - Out-of-disk space mid-load corrupts the DB. Verify ≥ 2 GB free before starting.
 - The DB filename is just a label — pick something meaningful for your corpus.

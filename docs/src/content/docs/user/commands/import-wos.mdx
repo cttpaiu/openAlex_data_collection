@@ -4,7 +4,7 @@ description: "Overlay per-country Web of Science Excel exports onto the DB."
 ---
 
 ```sh
-uv run openalex import-wos [--dir DIR] [--dry-run] [--only FILE]
+uv run openalex import-wos [--config PATH] [--db PATH] [--dir DIR] [--dry-run] [--only FILE]
                            [--fuzzy-threshold 0.95] [--no-fuzzy]
 ```
 
@@ -24,6 +24,8 @@ Per-file commit. Re-runs are idempotent: matched papers don't get duplicate WoS 
 
 | Flag | Default | Description |
 |---|---|---|
+| `--config` | `config/collection.yml` | Collection configuration used for DB resolution |
+| `--db` | from config / prompt | DuckDB file |
 | `--dir` | `data/QSM` | Directory containing per-country `.xlsx` |
 | `--dry-run` | off | Preview without DB writes |
 | `--only` | none | Process a single filename (debug) |
@@ -53,5 +55,6 @@ indexed 36,597 existing DOIs, 41,566 titles
 ## Gotchas
 
 - Aggregate Excel files (`1 QSM-Total Publications Country Wise.xlsx`, `Countries Quantum Sensing and Metrology - WoS.xlsx`) are auto-skipped.
+- Files without a configured country mapping are skipped with a warning.
 - The fuzzy threshold default (0.95) was tuned to eliminate one-word-substitution false positives (e.g. "He atoms…" matching "Li atoms…"). Lowering it broadens recall but also lets noise through.
 - WoS contribution rows carry `author_id = NULL, institution_id = NULL`. Joins that expect non-null author/institution must filter `WHERE source = 'openalex'`.
