@@ -1,0 +1,54 @@
+---
+title: openalex/imputation.py
+description: "Pydantic LLM-response schemas, InstitutionMatcher, country-alias regex, normalize_country_code."
+---
+
+## Purpose
+
+Shared infrastructure for every imputation source. Holds:
+
+- ISO-3166 country code normalisation (HK → CN remap).
+- Country regex aliases for rule-first inference in Stage 3.
+- Pydantic schemas for langchain `.with_structured_output(...)`.
+- Sentence-transformers-backed institution matcher.
+- Synthetic institution ID minting.
+
+## Public API
+
+| Symbol | Kind | Notes |
+|---|---|---|
+| `normalize_country_code(code)` | fn | HK → CN remap; uppercase strip. **Use everywhere a country code enters the DB.** |
+| `COUNTRY_NORMALIZATION` | dict | `{"HK": "CN"}` |
+| `COUNTRY_ALIASES` | dict | code → tuple of alias strings, including period-form variants (`u.k.`, `u.s.a`, `p.r.c.`) |
+| `COUNTRY_PATTERNS` | list | Precompiled `(code, term, re.Pattern)` triples |
+| `infer_country_from_affiliation(text)` | fn | Returns `CountryInference(country_code, status, matched_terms)`; status is `unambiguous` / `ambiguous` / `none` |
+| `InstitutionPrediction`, `CountryPrediction` | dataclass | Internal DB-write carriers |
+| `InstitutionPredictionItem` / `Response` | pydantic | Stage 1 schema; `row_id: int \| str` |
+| `CountryPredictionItem` / `Response` | pydantic | Stage 2/3 schema |
+| `PdfAuthorItem` / `PdfAuthorResponse` | pydantic | `impute pdf` schema |
+| `InstitutionRecord` / `InstitutionMatch` | dataclass | Matcher I/O |
+| `synthetic_institution_id(name)` | fn | `IMP_<sha1[:10]>`; deterministic |
+| `InstitutionMatcher` | class | sentence-transformers cosine; persisted embedding cache |
+
+## InstitutionMatcher cache
+
+`InstitutionMatcher.index(records)` writes to `data/cache/institution_embeddings.pt` (+ `.sha1` sidecar). Re-runs detect identical input via the fingerprint and skip re-encoding. The cached tensor is moved to the model's device on load so query and corpus share a device.
+
+## Response-schema model validator
+
+```python
+@model_validator(mode="before")
+def _drop_incomplete(cls, data):
+    data["predictions"] = [p for p in data["predictions"] if p.get("row_id") is not None]
+    return data
+```
+
+This is what saves us from a single truncated trailing `{}` blowing up the whole batch.
+
+## In-repo dependencies
+
+None (other modules depend on this one).
+
+## 3rd-party
+
+`pydantic`, `sentence-transformers` (lazy import inside `InstitutionMatcher`).

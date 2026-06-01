@@ -1,0 +1,47 @@
+---
+title: impute-affiliation (impute llm)
+description: "Three-stage LLM pipeline over raw_affiliation_string, audit table, bounded worker pool."
+---
+
+## File
+
+`openalex/commands/impute_affiliation.py`
+
+## Stages
+
+| Stage | Eligibility | Action |
+|---|---|---|
+| 1 | `contributions.institution_id IS NULL` + `raw_affiliation_string IS NOT NULL` | LLM → institution name + country → `InstitutionMatcher` lookup → existing or synthetic `IMP_<sha1>` |
+| 2 | `institutions.country_code IS NULL` | Rule-first regex, LLM fallback. Cascades country to every contribution sharing that institution. |
+| 3 | `contributions.country_code IS NULL` | Rule-first regex on `raw_affiliation_string`, LLM fallback. |
+
+## Async + worker pool
+
+`_run_batches_concurrently(batches, llm_concurrency, query_async, on_result)`:
+
+- Producer/consumer pattern (input queue + N=concurrency workers + output queue).
+- Only `concurrency` coroutines exist in flight, not one per batch — keeps memory flat across thousands of batches.
+- DB writes happen on the main event loop, serialised, after each result returns from `output_q`.
+
+## Stats schema
+
+Each stage tracks: `eligible`, `matched_existing`, `created_synthetic`, `country_only`, `low_confidence`, `skipped`, `no_prediction`, `retry_recovered` (Stage 1); similar fields for Stages 2/3.
+
+## Audit table
+
+`country_imputation_audit` — insert-only log per write. Stage column distinguishes `1` / `2` / `3` / `pdf` / `crossref` runs.
+
+## Retry path
+
+Stage 1 batches with truncated LLM responses (qwen 2b often drops trailing items when `num_predict` runs out) now re-query the missing `row_id`s once. See `_process_stage1_batch` `if missing_ids` branch.
+
+## Critical fixes recorded
+
+- **row_id schema** — Stage 2 sends `institution_id` (string) as the LLM prompt's row_id. Originally `row_id: int` rejected every response. Now `row_id: int | str`. See `openalex/imputation.py::_coerce_row_id`.
+- **status advisory** — Stages 2/3 used to gate on `pred.status == "unambiguous"`. qwen 2b often omits status; loosened to "accept any non-null country_code".
+- **Period-form aliases** — GB / US / CN ISO codes now match `u.k.`, `u.k`, `u.s.a`, `p.r.c.`, `p.r.c` literals in raw text.
+
+## Dependencies
+
+- in-repo: `openalex/imputation.py`, `openalex/config.py`.
+- 3rd-party: `langchain-ollama`, `langchain-groq`, `pydantic`, `sentence-transformers`, `rich`, `duckdb`.

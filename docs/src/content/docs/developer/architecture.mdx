@@ -1,0 +1,70 @@
+---
+title: Architecture
+description: "Layered overview from the Click entry point down to the shared infra modules."
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+## Layered view
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  openalex/cli.py                                                 │
+│    Click group + subgroups; one command function per workflow.   │
+└──────────────────────────────────────────────────────────────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            ▼                   ▼                   ▼
+┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│ commands/search  │   │ commands/        │   │ commands/        │
+│ commands/topics  │   │   download       │   │   impute_*       │
+│ commands/sample  │   │   database       │   │   enrich_crossref│
+│ commands/check_* │   │   import_wos     │   │   impute_pdf     │
+└──────────────────┘   └──────────────────┘   └──────────────────┘
+            │                   │                   │
+            └───────────────────┼───────────────────┘
+                                ▼
+          ┌────────────────────────────────────────────────┐
+          │  Shared infra modules in openalex/             │
+          │  ──────────────────────────────────────────── │
+          │  config.py         AppConfig + init template   │
+          │  api_client.py     AsyncOpenAlexClient         │
+          │  utils.py          build_filter                │
+          │  validator.py      keyword + topic linting     │
+          │  imputation.py     pydantic, InstitutionMatcher│
+          │  pdf.py            URL resolver + PyMuPDF      │
+          │  wos.py            Excel reader + normalisers  │
+          │  anchors.py        anchor-paper coverage check │
+          └────────────────────────────────────────────────┘
+                                │
+                                ▼
+          ┌────────────────────────────────────────────────┐
+          │  Persistence: DuckDB                            │
+          │  papers / authors / institutions / countries /  │
+          │  contributions / country_imputation_audit       │
+          └────────────────────────────────────────────────┘
+```
+
+## Conventions
+
+1. **`load_config` is always the first step in every command.** No command opens its own YAML.
+2. **Filter strings go through `openalex/utils.py::build_filter`.** No hand-concatenation.
+3. **Country codes flow through `openalex/imputation.py::normalize_country_code`.** No raw country code reaches DuckDB without HK→CN remap.
+4. **Per-batch commit.** Long-running commands commit per batch / per paper / per file so Ctrl-C is safe.
+5. **Idempotent SQL.** `COALESCE(...)` updates + `ON CONFLICT DO NOTHING` inserts mean re-running picks up where it stopped.
+
+## Async + concurrency model
+
+OpenAlex pagination, Unpaywall lookups, CrossRef fetches, and PDF downloads all run inside an `aiohttp.ClientSession` with a `Semaphore(concurrent_requests)` cap. LLM batch calls in the imputation pipeline use a **bounded worker pool** (queue-fed N=`--llm-concurrency` workers) rather than `asyncio.create_task` per batch — keeps memory flat for thousands of batches.
+
+DuckDB writes stay on the main event loop. DuckDB is single-threaded; the worker pool fans out **only** network I/O, then results are consumed in submission order so writes serialise naturally.
+
+## Why DuckDB
+
+- Single-file, no daemon. Perfect for laptop-scale research.
+- Native columnar; fast aggregates over the contributions table.
+- `INSERT … ON CONFLICT DO NOTHING` + filtered indices = idempotent merging.
+
+<Aside type="note">
+DuckDB ≥ 1.4 is required for sequence support (`nextval('seq_contrib')` in `convert-to-db`).
+</Aside>

@@ -1,0 +1,52 @@
+---
+title: import-wos-csv
+description: "Internals of the WoS CSV import command."
+---
+
+## Overview
+
+The `import-wos-csv` command enables importing publication records from a Web of Science CSV export. Unlike the Excel-based `import-wos` which is designed for per-country files, this command is optimized for a single consolidated CSV file and fetches missing metadata directly from OpenAlex.
+
+## Implementation Details
+
+- **File Path**: `openalex/commands/import_wos_csv.py`
+- **Dependencies**: `polars` for CSV parsing, `duckdb` for database storage, `AsyncOpenAlexClient` for API interaction.
+
+### Logic Flow
+
+1. **Initialization**:
+   - Resolves the database path using `_resolve_db_path`.
+   - Instantiates `OpenAlexLoader` to ensure the DuckDB schema exists.
+   - Loads existing DOIs from the `papers` table to enable deduplication.
+
+2. **Parsing**:
+   - Reads the CSV using `polars.read_csv`.
+   - Handles `n/a` as null values.
+   - Filters out records whose DOI already exists in the database.
+
+3. **OpenAlex Enrichment**:
+   - Records with DOIs are processed in batches of 50.
+   - `AsyncOpenAlexClient.fetch_all_pages` is called with a `doi:DOI1|DOI2|...` filter.
+   - Fetched records are passed to `OpenAlexLoader.process_record` for standardized insertion.
+   - Successfully enriched records are marked with `from_wos = TRUE`.
+
+4. **Stub Fallback**:
+   - Records not found in OpenAlex (or without a DOI) are inserted as "stub" records.
+   - The `papers.id` is generated as `WOS_<AccessionNumber>`.
+   - Basic metadata (title, year, source, document type) is mapped from the CSV columns.
+   - Stub records are also marked with `from_wos = TRUE` and store the original `wos_accession_number`.
+
+## Database Impact
+
+- **`papers` table**:
+  - Adds/Updates records.
+  - Sets `from_wos = TRUE`.
+  - Populates `wos_accession_number`.
+- **`authors`, `institutions`, `contributions` tables**:
+  - Populated via `OpenAlexLoader` if record is found in OpenAlex.
+  - Stub records do NOT currently populate these relational tables (as CSV metadata for authors is often unstructured).
+
+## Error Handling
+
+- **CSV Parsing**: Uses `infer_schema_length=10000` to handle mixed types in columns like `Issue` or `Journal Impact Factor`.
+- **API Failures**: If OpenAlex fetching fails for a batch, the command falls back to stub records for those DOIs.

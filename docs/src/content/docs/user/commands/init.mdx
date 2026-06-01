@@ -1,0 +1,47 @@
+---
+title: init
+description: "Create the config/ template files to get started."
+---
+
+```sh
+uv run openalex init [--force]
+```
+
+## What it does
+
+Creates `config/` with four template files:
+
+| File | Purpose |
+|---|---|
+| `config/collection.yml` | API keys, date range, batch sizes, LLM provider/model |
+| `config/keywords.txt` | Boolean keyword query (pre-filled with the quantum-computing set) |
+| `config/topics.txt` | Empty header — fill with `T` + 5-digit topic IDs |
+| `config/anchor.txt` | Empty header — fill with must-find DOIs or titles |
+
+Also creates `data/raw/` and `data/db/` directories.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--force` | Overwrite existing files |
+
+## Example
+
+```sh
+uv run openalex init
+```
+
+```text
+  ✓ Created  config/collection.yml
+  ✓ Created  config/keywords.txt
+  ✓ Created  config/topics.txt
+  ✓ Created  config/anchor.txt
+
+  Next step: Edit config/collection.yml and set your API key.
+```
+
+## Gotchas
+
+- Existing files are **skipped** unless you pass `--force`.
+- After `init`, edit `config/collection.yml` and replace `YOUR_API_KEY_HERE` with your OpenAlex API key. Get one for free at [openalex.org/account](https://openalex.org/account).

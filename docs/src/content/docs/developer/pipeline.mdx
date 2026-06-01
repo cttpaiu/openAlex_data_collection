@@ -1,0 +1,83 @@
+---
+title: Pipeline data flow
+description: "Sequence diagrams for download, convert-to-db, enrich, and impute."
+---
+
+## Top-level flow
+
+```
+config/keywords.txt + config/topics.txt
+            │
+            ▼
+build_filter() ──► OpenAlex /works (cursor pagination)
+            │
+            ▼
+data/raw/openalex.jsonl  (line-delimited JSON)
+            │
+            ▼
+OpenAlexLoader  ──► papers + authors + institutions + countries + contributions
+            │
+            ▼
+(optional) import-wos     ──► papers.from_wos, contributions.source='wos'
+(optional) impute crossref ──► contributions.raw_affiliation_string
+(optional) impute pdf      ──► contributions.{institution_id,country_code}
+(optional) impute llm      ──► same, three-stage
+            │
+            ▼
+data/db/<name>.duckdb  (query target)
+```
+
+## download → convert-to-db
+
+1. `AsyncOpenAlexClient.fetch_page(filter, cursor='*')` returns one page of ~200 papers + `meta.next_cursor`.
+2. Each page is JSON-serialised and pushed to `BufferedWriter` (`asyncio.Lock`-guarded, flushes every `buffer_size` lines).
+3. Loop until `next_cursor` is None.
+4. `OpenAlexLoader.process_record(record)` streams JSONL line by line. Per record:
+   - `papers` upsert with `SELECT 1 FROM papers WHERE id = ?` skip check.
+   - One `contributions` row per authorship with `nextval('seq_contrib')` as `row_id`.
+   - `authors` and `institutions` deduped via in-memory caches.
+   - `_ensure_country` normalises + inserts new country codes.
+
+## impute pdf (per paper)
+
+```
+DOI ─► find_pdf_url() ─► download_pdf() ─► PyMuPDF.first_page_text()
+                                                       │
+                                                       ▼
+                              langchain.ChatOllama
+                              .with_structured_output(PdfAuthorResponse)
+                                                       │
+                                                       ▼
+                              match LLM authors ↔ contribution rows
+                              (ORCID → ordinal position)
+                                                       │
+                                                       ▼
+                              InstitutionMatcher.find_match()
+                              (sentence-transformers cosine)
+                                                       │
+                                                       ▼
+                              existing inst OR synthetic IMP_<sha1>
+                                                       │
+                                                       ▼
+                              UPDATE contributions ... COALESCE(...)
+                              + audit row + con.commit()
+```
+
+## import-wos (per Excel file)
+
+```
+data/QSM/<Country>.xlsx
+            │
+            ▼
+country_code_for_file(filename) ─► ISO-3166 alpha-2
+            │
+            ▼
+for each WoS row:
+   match by DOI → exact title → fuzzy title
+   matched papers: from_wos = TRUE, OR-merge top1/top10
+   unmatched papers: INSERT new with id WOS_<accession>
+   INSERT contribution (paper, country, source='wos')
+            │
+            ▼
+con.commit()  (per file)
+```

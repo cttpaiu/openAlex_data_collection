@@ -1,0 +1,40 @@
+---
+title: openalex/cli.py
+description: "Click group + command registration; the entry point for every uv run openalex … invocation."
+---
+
+## Purpose
+
+Thin Click group that imports every command function from `openalex/commands/*.py` and registers them. Also defines the `impute` subgroup that hosts `crossref` / `llm` / `pdf`.
+
+The module docstring on the `cli()` function is the **canonical workflow order** — keep it in sync when adding commands.
+
+## Public API
+
+| Symbol | Kind | Notes |
+|---|---|---|
+| `cli` | `click.Group` | Top-level entry; registered as `openalex` via `[project.scripts]` in `pyproject.toml` |
+| `impute_group` | `click.Group` | Subgroup; hosts `crossref`, `llm`, `pdf` |
+
+## Registration pattern
+
+```python
+from openalex.commands.impute_affiliation import impute_affiliation_command
+...
+impute_group.add_command(enrich_crossref_command)   # canonical name "crossref"
+impute_group.add_command(impute_affiliation_command) # canonical name "llm"
+impute_group.add_command(impute_pdf_command)        # canonical name "pdf"
+cli.add_command(impute_group)
+
+# Deprecation aliases — old top-level names still work for one release:
+cli.add_command(enrich_crossref_command, name="enrich-crossref")
+cli.add_command(impute_affiliation_command, name="impute-affiliation")
+```
+
+## In-repo dependencies
+
+Imports every command function from `openalex.commands.*`. No business logic.
+
+## 3rd-party
+
+`click` only.

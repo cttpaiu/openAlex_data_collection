@@ -1,0 +1,39 @@
+---
+title: openalex/wos.py
+description: "Per-country Excel reader + DOI / title / country normalisers used by import-wos."
+---
+
+## Purpose
+
+Pure helper module for `openalex import-wos`. No DB writes, no network. Just file I/O + string normalisation + a row dataclass.
+
+## Public API
+
+| Symbol | Kind | Notes |
+|---|---|---|
+| `AGGREGATE_FILENAMES` | frozenset | Master / total-publications sheets we skip |
+| `COUNTRY_FILE_TO_CODE` | dict | Filename stem → ISO-3166 alpha-2 (UK/England/Scotland → GB; Hong Kong → HK then HK→CN downstream) |
+| `country_code_for_file(filename)` | fn | Returns ISO code or None (aggregate / unknown) |
+| `normalize_doi(raw)` | fn | Lower, strip URL prefix, strip whitespace |
+| `normalize_title(raw)` | fn | NFKD diacritic-fold + lower + punctuation strip + whitespace collapse |
+| `WosRecord` | `@dataclass(frozen=True)` | 12-field projection of the Excel row |
+| `read_wos_country_file(path)` | generator | Yields `WosRecord`s via `polars.read_excel` |
+
+## WosRecord fields
+
+```
+accession_number      doi / doi_normalized
+title / title_normalized
+authors               source              document_type
+publication_year      times_cited
+top_1_percent: bool   top_10_percent: bool
+percentile: float | None
+```
+
+## In-repo dependencies
+
+`openalex/imputation.py::normalize_country_code` (HK → CN remap).
+
+## 3rd-party
+
+`polars` (lazy import inside `read_wos_country_file`).

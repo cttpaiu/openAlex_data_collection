@@ -110,24 +110,37 @@ async def check_anchor_coverage(cfg: Any, api_filter: str, anchors: list[AnchorE
 
     if doi_anchors:
         unique_dois = sorted({a.normalized for a in doi_anchors})
+        # OpenAlex supports OR logic for DOIs: doi:doi1|doi2|doi3
+        # Small batches: combined URL also carries the keywords boolean and
+        # 100+ topic IDs, so a 50-DOI batch overflows OpenAlex's URL length
+        # limit and the server returns an HTML 400 page instead of JSON.
+        batch_size = 10
+        doi_batches = [unique_dois[i:i + batch_size] for i in range(0, len(unique_dois), batch_size)]
+        
         async with AsyncOpenAlexClient(
-            api_key=cfg.api_key,
+            api_keys=cfg.api_keys,
             email=cfg.email,
-            per_page=1,
+            per_page=200, # We want to see which ones matched
             max_retries=cfg.max_retries,
             retry_delay=cfg.retry_delay,
         ) as client:
-            counts = await asyncio.gather(
-                *(client.get_total_count(f"{api_filter},doi:{doi}") for doi in unique_dois)
-            )
-        found_dois = {doi for doi, count in zip(unique_dois, counts) if count > 0}
+            for batch in doi_batches:
+                batch_filter = "|".join(batch)
+                # We check if these DOIs match the CURRENT keyword filter
+                # We use fetch_page to get the actual results that matched
+                data = await client.fetch_page(f"{api_filter},doi:{batch_filter}", cursor="*", extra_params={"select": "doi"})
+                if data and "results" in data:
+                    for res in data["results"]:
+                        res_doi = normalize_doi(res.get("doi") or "")
+                        if res_doi:
+                            found_dois.add(res_doi)
 
     for entry in doi_anchors:
         (found if entry.normalized in found_dois else missing).append(entry)
 
     if title_anchors:
         async with AsyncOpenAlexClient(
-            api_key=cfg.api_key,
+            api_keys=cfg.api_keys,
             email=cfg.email,
             per_page=cfg.per_page,
             max_retries=cfg.max_retries,

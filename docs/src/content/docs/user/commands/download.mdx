@@ -1,0 +1,37 @@
+---
+title: download
+description: "Pull all matching papers into data/raw/openalex.jsonl."
+---
+
+```sh
+uv run openalex download [--output PATH] [--resume]
+```
+
+## What it does
+
+Paginates through every OpenAlex work matching your keywords + topics + date + doc-type filter. Writes one JSON object per line to `data/raw/openalex.jsonl` (~820 MB for the default ~96k quantum-computing corpus). Uses cursor pagination with retry/backoff and concurrent requests.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output` | from `collection.yml → output.jsonl_dir` | JSONL output path |
+| `--resume` | off | Skip records already in the output file (by `id`) |
+
+## Example
+
+```sh
+uv run openalex download
+```
+
+```text
+Downloading 96,665 records (concurrency=10)…
+  ▰▰▰▰▰▰▰▰▰▰  96,665/96,665   00:08:42   42.1 MB/s
+✓ wrote data/raw/openalex.jsonl
+```
+
+## Gotchas
+
+- 96k papers ≈ 8–15 min on a decent connection. 429 responses trigger exponential backoff automatically.
+- The JSONL file is overwritten unless you pass `--resume`. Back it up if you've spent time getting it.
+- `SELECT_FIELDS` in `openalex/api_client.py` controls which OpenAlex fields land in the JSONL. Adding a new field to `convert-to-db` requires extending `SELECT_FIELDS` too.

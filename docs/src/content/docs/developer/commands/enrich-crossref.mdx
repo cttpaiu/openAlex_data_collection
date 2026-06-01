@@ -1,0 +1,39 @@
+---
+title: enrich-crossref (impute crossref)
+description: "Async CrossRef polite-pool client + author matcher + raw_affiliation_string backfill."
+---
+
+## File
+
+`openalex/commands/enrich_crossref.py`
+
+## What it does
+
+For every contribution row with `institution_id IS NULL` + `raw_affiliation_string IS NULL` whose paper has a DOI:
+
+1. `AsyncCrossRefClient.fetch_doi(doi)` — `GET https://api.crossref.org/works/{doi}` with `User-Agent: openalex-data-collection/0.1.0 (mailto:<email>)` (polite pool, no rate limit enforced).
+2. Parse `message.author[].affiliation[].name` strings + `message.author[].ORCID`.
+3. `_match_authors(crossref_authors, target_rows)` — ORCID first, then ordinal position (only when remaining list lengths match).
+4. `_flush_paper(con, paper_id, matched)` — `UPDATE contributions SET raw_affiliation_string = COALESCE(...)` + audit insert + `con.commit()` per paper.
+
+## What it does NOT do
+
+Does **not** set `institution_id` or `country_code`. Only fills `raw_affiliation_string`. Subsequent `impute llm --stages 1` converts that string into institution + country.
+
+## Concurrency
+
+`AsyncCrossRefClient` uses a `Semaphore(concurrent_requests)` (default 10). 429 → exponential backoff. 404/410 → counted as `not_found`.
+
+## Author matching gotchas
+
+- If `len(crossref_authors) != len(target_rows)`, the paper is skipped entirely. CrossRef occasionally includes corrigendum authors or omits some — pairing-by-position-with-mismatched-lengths would pair the wrong row.
+- ORCID strip handles both `https://orcid.org/...` and bare `0000-...` forms.
+
+## Dependencies
+
+- in-repo: `openalex/imputation.py` (audit helpers via `impute_affiliation`), `openalex/config.py`.
+- 3rd-party: `aiohttp`, `rich`.
+
+## Yield reality
+
+CrossRef coverage on physics journals is sparse — ~3-5% of eligible papers actually have non-empty `affiliation[]`. Run it for the easy wins; don't rely on it.

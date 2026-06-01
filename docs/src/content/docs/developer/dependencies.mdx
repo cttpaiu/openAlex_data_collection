@@ -1,0 +1,38 @@
+---
+title: Dependencies
+description: "Each pyproject.toml entry with a short rationale."
+---
+
+## Runtime (`pyproject.toml`)
+
+| Package | Used by | Why |
+|---|---|---|
+| `aiohttp` | `api_client.py`, `enrich_crossref.py`, `impute_pdf.py` | Async HTTP for OpenAlex / CrossRef / Unpaywall / arXiv |
+| `click==8.1.8` | `cli.py`, every command | Pinned; click 8.2+ breaks `add_command(name=)` overrides used by the impute subgroup |
+| `duckdb` | `database.py`, every DB-touching command | Single-file analytical DB |
+| `langchain-core`, `langchain-ollama`, `langchain-groq` | `impute_affiliation.py`, `impute_pdf.py` | `.with_structured_output(schema)` LLM calls |
+| `polars` | `wos.py` | Excel reading via `pl.read_excel` |
+| `pyarrow`, `fastexcel` | transitive | `polars.read_excel` backend |
+| `pycountry` | reserved for future use | Country reference (manual mapping is currently authoritative) |
+| `pydantic` | `imputation.py` | Structured-output response schemas |
+| `pymupdf` | `pdf.py` | PDF text extraction |
+| `pyyaml` | `config.py` | Parse `collection.yml` |
+| `questionary` | various commands | Interactive prompts |
+| `rapidfuzz` | `import_wos.py` | Fuzzy title match for WoS rows |
+| `rich` | every command | Tables, progress bars, panels |
+| `sentence-transformers` | `imputation.py::InstitutionMatcher` | Cosine similarity between institution names |
+
+## Dev (`[dependency-groups].dev`)
+
+| Package | Why |
+|---|---|
+| `pytest` | Test runner |
+| `pytest-asyncio` | `asyncio_mode = "auto"` |
+
+## Docs (`docs/package.json`)
+
+| Package | Why |
+|---|---|
+| `astro` | Static site framework |
+| `@astrojs/starlight` | Docs theme |
+| `sharp` | Image processing (Starlight peer-dep) |

@@ -1,0 +1,42 @@
+---
+title: convert-to-db
+description: "OpenAlexLoader streams JSONL into the 5-table DuckDB schema."
+---
+
+## File
+
+`openalex/commands/database.py`
+
+## Class layout
+
+- `OpenAlexLoader(db_path, jsonl_path)` — constructor opens the DuckDB connection, creates schema, initialises the `seq_contrib` sequence (starts at `MAX(row_id)+1` for resumes), loads caches.
+- `load_existing_caches()` — pulls existing `authors.id` + `institutions.id` into in-memory sets so reruns skip duplicates without a SELECT per row.
+- `process_record(record)` — main per-paper handler. Skips on PK conflict, otherwise inserts paper + authorship rows.
+- `_ensure_country(code)` — HK→CN remap + insert into `countries` if new.
+- `_insert_institution(data)` — caches by id; idempotent.
+- `_insert_author(data)` — same.
+
+## Schema
+
+`_create_schema()` issues `CREATE TABLE IF NOT EXISTS` for all five tables + an `ALTER TABLE … ADD COLUMN IF NOT EXISTS is_synthetic` migration on `institutions`. See **[DuckDB schema](../../schema/)** for column-level detail.
+
+## Idempotency
+
+- `papers` is the dedup root. `SELECT 1 FROM papers WHERE id = ?` skips re-inserts.
+- `contributions` uses `nextval('seq_contrib')` for `row_id`. Re-running over the same JSONL won't append duplicate rows because the paper-level skip short-circuits.
+- `authors` and `institutions` use the in-memory cache → `ON CONFLICT DO NOTHING`.
+- `_ensure_country` checks cache → INSERT … ON CONFLICT DO NOTHING.
+
+## HK → CN remap
+
+Applied at load time via `normalize_country_code` inside `_insert_institution` and the authorship country fallback. New databases come out of `convert-to-db` already remapped.
+
+## Dependencies
+
+- in-repo: `openalex/imputation.py::normalize_country_code`.
+- 3rd-party: `duckdb`, `rich`.
+
+## Gotchas
+
+- Out-of-disk mid-run can corrupt the DB. Pre-check disk before starting on a large corpus.
+- The `seq_contrib` sequence isn't shared across DuckDB files. Each fresh DB starts at 1.

@@ -1,0 +1,70 @@
+---
+title: Installation
+description: "Install uv, clone the repo, install dependencies, and verify the CLI is reachable."
+---
+
+import { Steps, Code, Tabs, TabItem } from "@astrojs/starlight/components";
+
+## Requirements
+
+| | Version |
+|---|---|
+| Python | ≥ 3.13 |
+| [uv](https://docs.astral.sh/uv/) | latest |
+| OpenAlex API key | free — [request one](https://openalex.org/account) |
+| Disk | ≥ 2 GB free for the JSONL + DuckDB |
+| Optional: Ollama | for local LLM imputation |
+
+## Install uv
+
+<Tabs syncKey="os">
+  <TabItem label="macOS / Linux">
+    ```sh
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+  </TabItem>
+  <TabItem label="Windows">
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+    ```
+  </TabItem>
+  <TabItem label="Homebrew">
+    ```sh
+    brew install uv
+    ```
+  </TabItem>
+</Tabs>
+
+## Clone + install
+
+```sh
+git clone https://github.com/Darunesh1/openAlex_data_collection.git
+cd openAlex_data_collection
+uv sync   # creates .venv, installs deps from uv.lock
+```
+
+`uv sync` reads `pyproject.toml` + `uv.lock` and installs everything (incl. the `dev` group with `pytest`). No system Python pollution.
+
+## Verify
+
+```sh
+uv run openalex --help
+```
+
+You should see the top-level command list with `init`, `validate`, `search`, …, `impute`, `import-wos`, `export-format`.
+
+## Optional: Ollama for local LLM imputation
+
+`openalex impute llm` and `openalex impute pdf` default to a local Ollama model.
+
+```sh
+brew install ollama
+ollama serve   # in one terminal
+ollama pull sorc/qwen3.5-instruct:2b   # default model
+```
+
+Keep `ollama serve` running for the lifetime of any `impute` invocation. Cloud Groq is opt-in via `--llm-provider groq`.
+
+## Next
+
+Run the pipeline end to end in the **[Quick Start →](../quick-start/)**.

@@ -13,8 +13,14 @@ from openalex.commands.check_db import check_db_command
 from openalex.commands.enrich_crossref import enrich_crossref_command
 from openalex.commands.impute_affiliation import impute_affiliation_command
 from openalex.commands.impute_pdf import impute_pdf_command
+from openalex.commands.import_wos import import_wos_command
+from openalex.commands.import_wos_csv import import_wos_csv_command
 from openalex.commands.export import export_format_command
+from openalex.commands.extract_keywords import extract_keywords_command
+from openalex.commands.build_categorized_query import build_categorized_query_command
 from openalex.commands.validate import validate_command
+from openalex.commands.compare_dois import compare_dois_command
+from openalex.commands.wos_import_impute import wos_import_impute_command
 
 
 @click.group()
@@ -24,6 +30,8 @@ def cli() -> None:
 
     \b
     Workflow:
+      0. openalex extract-keywords FILE        TF-IDF over title+abstract → ranked keywords file
+         openalex build-categorized-query JSON  (optional) Bucketed JSON → bounded boolean query
       1. openalex init                  Create config template files
       2. openalex validate              Check keywords.txt and topics.txt
       3. openalex search                Keyword count + anchor check
@@ -35,13 +43,17 @@ def cli() -> None:
       9. openalex download              Download all papers → JSONL
      10. openalex convert-to-db         JSONL → DuckDB
      11. openalex check-db              Paper-centric coverage health report
-     12. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
+     12. openalex import-wos            Import per-country Web of Science Excel exports
+     13. openalex import-wos-csv        Import Web of Science records from a CSV file
+     14. openalex compare-dois          DOI overlap between DuckDB and a WoS CSV
+     15. openalex wos-import-impute     One-shot: CSV → DOI dedupe → OpenAlex fetch → impute
+     16. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
 
     \b
     Imputation sources (pick one):
       openalex impute crossref          Restore raw_affiliation_string from CrossRef
       openalex impute llm               LLM-extract institution + country from raw affiliations
-      openalex impute pdf               Resolve PDF URL via Unpaywall/arXiv, download, extract page-1 text (LLM step pending)
+      openalex impute pdf               Resolve PDF URL, download, extract text, and use LLM to find affiliations
     """
 
 
@@ -53,7 +65,7 @@ def impute_group() -> None:
     Sources:
       crossref   Pull raw_affiliation_string from CrossRef by DOI (fast, low yield).
       llm        Three-stage LLM pipeline over raw_affiliation_string.
-      pdf        Fetch the paper's PDF (Unpaywall/arXiv) and extract page-1 text into a cache. LLM extraction lands in a follow-up.
+      pdf        Fetch the paper's PDF (Unpaywall/arXiv), extract page-1 text, and use LLM to extract missing affiliations.
     """
 
 
@@ -67,7 +79,13 @@ cli.add_command(sample_command)
 cli.add_command(download_command)
 cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
+cli.add_command(import_wos_command)
+cli.add_command(import_wos_csv_command)
 cli.add_command(export_format_command)
+cli.add_command(extract_keywords_command)
+cli.add_command(build_categorized_query_command)
+cli.add_command(compare_dois_command)
+cli.add_command(wos_import_impute_command)
 
 # Unified imputation subgroup. Names come from each command's own decorator
 # (@click.command("crossref") / @click.command("llm")) so help/usage output

@@ -1,0 +1,33 @@
+---
+title: openalex/config.py
+description: "AppConfig dataclass, load_config(), and the init template generator."
+---
+
+## Purpose
+
+Owns config schema (`AppConfig`), the `openalex init` template generator (`init_command`), and the `load_config()` entry point used by every other command.
+
+## Public API
+
+| Symbol | Kind | Notes |
+|---|---|---|
+| `AppConfig` | `@dataclass` | Frozen-ish config snapshot; lazy-loads keywords / topics / anchors files |
+| `load_config(path)` | fn | Parses `collection.yml` into an `AppConfig`; fatal errors print Rich panel + `SystemExit(1)` |
+| `init_command` | Click cmd | `openalex init` |
+| `DEFAULT_CONFIG` | dict | YAML template seeded by `init` |
+| `DEFAULT_KEYWORDS` / `_TOPICS_HEADER` / `_ANCHORS_HEADER` | str | File templates |
+
+## Key invariants
+
+- `AppConfig.get_keywords()` collapses **all whitespace** (newlines/tabs/multiple spaces) to single spaces before returning. Required because the raw query is embedded in the OpenAlex `filter` URL parameter.
+- `AppConfig.get_topics()` / `get_anchors()` strip blanks and `#` comments.
+- Topic IDs must match `^T\d{5}$` (validated downstream in `validator.py`).
+- Fatal errors print Rich-formatted message + `raise SystemExit(1)`. Mirror this pattern for new fatal-path errors.
+
+## In-repo dependencies
+
+None (this module is the root of the config tree).
+
+## 3rd-party
+
+`click`, `pyyaml`, `rich`.

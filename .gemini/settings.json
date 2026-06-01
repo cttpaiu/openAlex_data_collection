@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "duckdb": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-duckdb",
+        "--db-path",
+        "/Users/sruthikalyani/Projects/openAlex_data_collection/data/db/Quantum_Sensing_and_Metrology.duckdb"
+      ]
+    }
+  }
+}

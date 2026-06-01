@@ -175,7 +175,7 @@ def download_command(config_path: str, no_topics: bool, output: str) -> None:
 async def _get_count(cfg: Any, api_filter: str) -> int:
     try:
         async with AsyncOpenAlexClient(
-            api_key=cfg.api_key,
+            api_keys=cfg.api_keys,
             email=cfg.email,
             max_retries=cfg.max_retries,
             retry_delay=cfg.retry_delay,
@@ -235,13 +235,14 @@ async def _run_download(cfg: Any, api_filter: str, output_path: str, total: int,
             semaphore = asyncio.Semaphore(cfg.concurrent_requests)
 
             async with AsyncOpenAlexClient(
-                api_key=cfg.api_key,
+                api_keys=cfg.api_keys,
                 email=cfg.email,
                 per_page=cfg.per_page,
                 max_retries=cfg.max_retries,
                 retry_delay=cfg.retry_delay,
                 concurrent_requests=cfg.concurrent_requests,
             ) as client:
+
                 tasks = [
                     _process_batch(
                         client=client,

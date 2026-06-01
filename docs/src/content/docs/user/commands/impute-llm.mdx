@@ -1,0 +1,56 @@
+---
+title: impute llm
+description: "Three-stage LLM pipeline over raw_affiliation_string."
+---
+
+```sh
+uv run openalex impute llm [--db PATH] [--stages 1,2,3] [--dry-run]
+                           [--llm-fallback] [--llm-provider ollama|groq]
+                           [--llm-model NAME] [--llm-batch-size 20]
+                           [--llm-concurrency 2] [--llm-min-confidence 0.0]
+                           [--match-threshold 0.78]
+```
+
+## Three stages
+
+1. **Stage 1** — `contributions.institution_id IS NULL` + `raw_affiliation_string` present. LLM extracts institution name + country. The name is matched against existing institutions via sentence-transformers cosine similarity. Below `--match-threshold` a synthetic institution is created with id `IMP_<sha1[:10]>` and `is_synthetic = TRUE` (re-runs are idempotent).
+
+2. **Stage 2** — `institutions.country_code IS NULL`. Rule-first inference on display_name + a sample raw_affiliation_string; LLM fallback for unresolved. Country fix cascades to every contribution sharing that institution.
+
+3. **Stage 3** — `contributions.country_code IS NULL` after stages 1+2. Regex country aliases (US, CN, GB, DE, … with period-form variants) then optional LLM fallback.
+
+Per-batch commit. Bounded async worker pool. Resumable.
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--stages` | `1,2,3` | Comma-separated subset of stages to run |
+| `--llm-fallback` | off | Required for Stage 1 (purely LLM-driven). Stages 2/3 use it as fallback. |
+| `--llm-provider` | `ollama` (from config) | `groq` or `ollama` |
+| `--llm-model` | `sorc/qwen3.5-instruct:2b` | Override per-invocation |
+| `--llm-base-url` | `http://localhost:11434` | Ollama base URL |
+| `--llm-batch-size` | 20 | Rows per LLM batch |
+| `--llm-concurrency` | 2 | In-flight LLM batches |
+| `--llm-min-confidence` | 0.8 | Lower it (e.g. `0.0`) when using qwen 2b — it often omits confidence |
+| `--match-threshold` | 0.78 | Cosine similarity for institution dedup |
+| `--llm-max-tokens-stage1/2/3` | 600/400/300 | Token caps per batch |
+| `--groq-api-key` | — | Required when `--llm-provider groq` |
+
+## Example
+
+```sh
+uv run openalex impute llm --stages 1 --llm-fallback --llm-min-confidence 0.0
+```
+
+```text
+Stage 1 — institution imputation (3,505 rows) ━━━━━━━ 12/176 • 0:02:14 • 0:08:21
+  batch 12/176 → matched=14 synth=6 skip=0 lowconf=0
+```
+
+## Gotchas
+
+- **qwen 2b often omits `confidence`.** Default `--llm-min-confidence 0.8` rejects every row. Lower to `0.0` for local runs.
+- Stage 1 silently dropped row_ids in early versions when the LLM omitted some predictions. Now retried automatically and counted in `no_prediction` / `retry_recovered` stats.
+- Stage 2/3 LLM was historically zero-yield because `row_id: int` rejected the institution_id strings — fixed; now `row_id: int | str`.
+- Big `--llm-concurrency` only helps if `OLLAMA_NUM_PARALLEL` is set **on the daemon** (export it before `ollama serve`).
