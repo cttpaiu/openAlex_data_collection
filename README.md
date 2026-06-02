@@ -63,11 +63,17 @@ uv run openalex download             # download all → JSONL (~820 MB)
 uv run openalex convert-to-db        # JSONL → DuckDB
 uv run openalex check-db             # paper-centric coverage health report
 
-# 9. Impute missing institution/country
+# 9. Optional WoS and DOI overlap tools
+uv run openalex import-wos                     # per-country WoS Excel overlay
+uv run openalex import-wos-csv data/wos.csv    # consolidated WoS CSV import
+uv run openalex compare-dois --wos-csv data/wos.csv --export-dir data/doi_overlap
+
+# 10. Impute missing institution/country
 uv run openalex impute --help                  # list imputation sources
 uv run openalex impute crossref                # restore raw_affiliation_string from CrossRef by DOI
 uv run openalex impute llm --dry-run           # preview LLM imputation over raw_affiliation_string
 uv run openalex impute llm --llm-fallback --llm-batch-size 20   # rule + batched LLM
+uv run openalex impute pdf --limit 50 --dry-run                 # PDF resolver + LLM extraction
 # optional provider override (otherwise read from config/collection.yml -> llm.*)
 uv run openalex impute llm --llm-fallback --llm-provider ollama --llm-model sorc/qwen3.5-instruct:2b
 ```
@@ -144,7 +150,7 @@ uv run openalex wos-import-impute \
 The full docs are an [Astro Starlight](https://starlight.astro.build) site at
 **https://darunesh1.github.io/openAlex_data_collection/** with two sidebars:
 
-- **User Guide** — overview, installation, quick start, configuration, workflow, and a hand-written page per CLI command (`init`, `validate`, `search`, `get-topics`, `check-anchor`, `sample`, `download`, `convert-to-db`, `check-db`, `import-wos`, `impute crossref`, `impute llm`, `impute pdf`).
+- **User Guide** — overview, installation, quick start, configuration, workflow, and a hand-written page per CLI command (`init`, `extract-keywords`, `build-categorized-query`, `validate`, `search`, `get-topics`, `check-anchor`, `sample`, `download`, `convert-to-db`, `check-db`, `compare-dois`, `import-wos`, `import-wos-csv`, `wos-import-impute`, `export-format`, `impute crossref`, `impute llm`, `impute pdf`).
 - **Developer Guide** — architecture, pipeline data flow, DuckDB schema, dependencies, testing, contributing, plus one reference page per `openalex/*.py` module and per command implementation.
 
 To run the docs locally:

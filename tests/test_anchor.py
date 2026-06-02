@@ -58,7 +58,10 @@ async def test_check_anchor_coverage_marks_found_and_missing():
 
     doi_client = AsyncMock()
     doi_client.__aenter__.return_value = doi_client
-    doi_client.get_total_count = AsyncMock(return_value=1)
+    doi_client.fetch_page = AsyncMock(return_value={
+        "results": [{"doi": "https://doi.org/10.1038/nphys1170"}],
+        "meta": {"next_cursor": None},
+    })
 
     title_client = AsyncMock()
     title_client.__aenter__.return_value = title_client

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+.DS_Store
 
 # C extensions
 *.so
@@ -218,6 +219,14 @@ QWEN.md
 
 # AI assistant files
 CLAUDE.md
+
+# Local generated data / exploratory artifacts
+Notebook/
+data/cache/
+data/db/*.duckdb
+data/raw/*.jsonl
+sample_*.csv
+topics_*.csv
 .github/copilot-instructions.md
 .cursor/
 .cursorrules
