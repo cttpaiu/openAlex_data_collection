@@ -381,7 +381,7 @@ def wos_import_impute_command(
         llm_batch_size=20,
         llm_concurrency=2,
         llm_min_confidence=0.8,
-        llm_max_tokens_stage1=600,
+        llm_max_tokens_stage1=1200,
         llm_max_tokens_stage2=400,
         llm_max_tokens_stage3=300,
         match_threshold=0.78,

@@ -74,6 +74,33 @@ DEFAULT_MODEL = "sorc/qwen3.5-instruct:2b"
 DEFAULT_PROVIDER = "ollama"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
+# Ollama's default context window (num_ctx) is 2048. A 20-row affiliation
+# batch plus the JSON schema injected by `.with_structured_output(method=
+# "json_schema")` overflows that, so Ollama silently truncates the *prompt* —
+# the model loses the schema/instructions and returns invalid/empty JSON
+# ("Invalid json output"). Set a generous window. Override via OLLAMA_NUM_CTX.
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
+
+# Ollama structured output: we use method="json_mode" (plain `format="json"`)
+# rather than the default method="json_schema". The json_schema grammar makes
+# small local models (e.g. the 2B Qwen) ramble and return confidence 0 for every
+# row; json_mode + an explicit shape hint in the prompt yields clean, confident
+# JSON. Each schema needs its target shape spelled out in the prompt for the
+# parser to succeed. Groq keeps the default (function_calling) path.
+_JSON_SHAPE_HINTS: dict[str, str] = {
+    "InstitutionPredictionResponse": (
+        'Respond with ONLY a JSON object of this exact shape, no prose:\n'
+        '{"predictions":[{"row_id":<int>,"institution_name":<string|null>,'
+        '"country_code":<ISO-3166-1 alpha-2 string|null>,"confidence":<number 0..1>}]}'
+    ),
+    "CountryPredictionResponse": (
+        'Respond with ONLY a JSON object of this exact shape, no prose:\n'
+        '{"predictions":[{"row_id":<int or string, echoed from input>,'
+        '"country_code":<ISO-3166-1 alpha-2 string|null>,'
+        '"status":<"unambiguous"|"ambiguous"|"none">,"confidence":<number 0..1>}]}'
+    ),
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI entry
@@ -97,7 +124,7 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 @click.option("--llm-batch-size", type=int, default=20, show_default=True)
 @click.option("--llm-concurrency", type=int, default=2, show_default=True)
 @click.option("--llm-min-confidence", type=float, default=0.8, show_default=True)
-@click.option("--llm-max-tokens-stage1", type=int, default=600, show_default=True)
+@click.option("--llm-max-tokens-stage1", type=int, default=1200, show_default=True)
 @click.option("--llm-max-tokens-stage2", type=int, default=400, show_default=True)
 @click.option("--llm-max-tokens-stage3", type=int, default=300, show_default=True)
 @click.option(
@@ -344,7 +371,13 @@ def _langchain_structured_call(
             model=model,
             base_url=base_url,
             temperature=0,
+            num_ctx=OLLAMA_NUM_CTX,
             num_predict=max_tokens,
+            # `sorc/qwen3.5-*` and other Qwen3 models are reasoning models: left
+            # enabled they spend the entire num_predict budget inside <think>
+            # and emit empty content → langchain "Invalid json output". Disable
+            # thinking so the tokens go to the actual JSON answer.
+            reasoning=False,
             format="json",
         )
     elif provider == "groq":
@@ -359,6 +392,10 @@ def _langchain_structured_call(
     else:
         raise RuntimeError(f"Unsupported LLM provider: {provider}")
 
+    if provider == "ollama":
+        hint = _JSON_SHAPE_HINTS.get(schema.__name__, "")
+        prompt = f"{prompt}\n{hint}" if hint else prompt
+        return llm.with_structured_output(schema, method="json_mode").invoke(prompt)
     return llm.with_structured_output(schema).invoke(prompt)
 
 
@@ -379,7 +416,13 @@ async def _langchain_structured_call_async(
             model=model,
             base_url=base_url,
             temperature=0,
+            num_ctx=OLLAMA_NUM_CTX,
             num_predict=max_tokens,
+            # `sorc/qwen3.5-*` and other Qwen3 models are reasoning models: left
+            # enabled they spend the entire num_predict budget inside <think>
+            # and emit empty content → langchain "Invalid json output". Disable
+            # thinking so the tokens go to the actual JSON answer.
+            reasoning=False,
             format="json",
         )
     elif provider == "groq":
@@ -394,6 +437,10 @@ async def _langchain_structured_call_async(
     else:
         raise RuntimeError(f"Unsupported LLM provider: {provider}")
 
+    if provider == "ollama":
+        hint = _JSON_SHAPE_HINTS.get(schema.__name__, "")
+        prompt = f"{prompt}\n{hint}" if hint else prompt
+        return await llm.with_structured_output(schema, method="json_mode").ainvoke(prompt)
     return await llm.with_structured_output(schema).ainvoke(prompt)
 
 
