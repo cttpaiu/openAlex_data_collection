@@ -150,7 +150,7 @@ class AsyncOpenAlexClient:
         "primary_location,open_access,cited_by_count,"
         "citation_normalized_percentile,fwci,primary_topic,"
         "authorships,institutions_distinct_count,countries_distinct_count,"
-        "updated_date,topics,abstract_inverted_index"
+        "updated_date,topics,abstract_inverted_index,referenced_works"
     )
 
     # Process-wide pool — survives across client instances so multiple CLI
@@ -282,13 +282,12 @@ class AsyncOpenAlexClient:
 
     async def fetch_page(self, api_filter: str, cursor: str = "*",
                          extra_params: Optional[Dict] = None) -> Optional[Dict]:
-        """Fetch one cursor-paginated page of results."""
+        """Fetch one cursor-paginated page of results. We omit 'select' to save URL space."""
         url = "https://api.openalex.org/works"
         params: Dict[str, Any] = {
             "filter": api_filter,
             "per_page": self.per_page,
             "cursor": cursor,
-            "select": self.SELECT_FIELDS,
         }
         if extra_params:
             params.update(extra_params)
