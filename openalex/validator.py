@@ -62,8 +62,9 @@ async def validate_topics_exist(
 
     async def check_one(session: aiohttp.ClientSession, tid: str) -> None:
         url = f"https://api.openalex.org/topics/{tid}"
+        params = {"api_key": api_key} if api_key and api_key != "YOUR_API_KEY_HERE" else None
         try:
-            async with session.get(url) as r:
+            async with session.get(url, params=params) as r:
                 results[tid] = r.status == 200
         except Exception:
             results[tid] = False
@@ -71,8 +72,6 @@ async def validate_topics_exist(
     import asyncio
 
     headers: dict[str, Any] = {"User-Agent": f"mailto:{email}"}
-    if api_key and api_key != "YOUR_API_KEY_HERE":
-        headers["api_key"] = api_key
 
     connector = aiohttp.TCPConnector(limit=50)
     timeout = aiohttp.ClientTimeout(total=30)

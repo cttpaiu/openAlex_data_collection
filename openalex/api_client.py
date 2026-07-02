@@ -199,9 +199,9 @@ class AsyncOpenAlexClient:
                 )
 
             local_kwargs = dict(kwargs)
-            hdrs = dict(local_kwargs.get("headers") or {})
-            hdrs["api_key"] = key
-            local_kwargs["headers"] = hdrs
+            params = dict(local_kwargs.get("params") or {})
+            params["api_key"] = key
+            local_kwargs["params"] = params
 
             try:
                 async with self.session.request(method, url, **local_kwargs) as response:
