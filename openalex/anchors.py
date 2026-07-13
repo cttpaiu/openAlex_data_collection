@@ -83,6 +83,15 @@ def parse_anchor_entries(entries: list[str]) -> tuple[list[AnchorEntry], list[st
     return parsed, invalid
 
 
+def _cfg_api_keys(cfg: Any) -> list[str]:
+    """Support AppConfig.api_keys plus older test/config shims with api_key."""
+    keys = getattr(cfg, "api_keys", None)
+    if keys:
+        return list(keys)
+    key = getattr(cfg, "api_key", "")
+    return [key] if key else []
+
+
 async def _check_title_anchor(client: AsyncOpenAlexClient, api_filter: str, entry: AnchorEntry) -> bool:
     """Query OpenAlex for a specific title anchor using title.search — O(1) per anchor."""
     words = entry.normalized.split()
@@ -118,7 +127,7 @@ async def check_anchor_coverage(cfg: Any, api_filter: str, anchors: list[AnchorE
         doi_batches = [unique_dois[i:i + batch_size] for i in range(0, len(unique_dois), batch_size)]
         
         async with AsyncOpenAlexClient(
-            api_keys=cfg.api_keys,
+            api_keys=_cfg_api_keys(cfg),
             email=cfg.email,
             per_page=200, # We want to see which ones matched
             max_retries=cfg.max_retries,
@@ -140,7 +149,7 @@ async def check_anchor_coverage(cfg: Any, api_filter: str, anchors: list[AnchorE
 
     if title_anchors:
         async with AsyncOpenAlexClient(
-            api_keys=cfg.api_keys,
+            api_keys=_cfg_api_keys(cfg),
             email=cfg.email,
             per_page=cfg.per_page,
             max_retries=cfg.max_retries,

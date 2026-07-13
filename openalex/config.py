@@ -21,6 +21,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "api": {
         "key": "YOUR_API_KEY_HERE",
         "groq_key": "YOUR_GROQ_KEY_HERE",
+        "semanticscholar_key": "YOUR_S2_KEY_HERE",
         "email": "your@email.com",
         "base_url": "https://api.openalex.org/works",
     },
@@ -111,6 +112,7 @@ DEFAULT_ANCHORS_HEADER = """\
 class AppConfig:
     api_keys: list[str]
     groq_api_key: str
+    semanticscholar_api_key: str
     email: str
     base_url: str
     date_from: str
@@ -143,10 +145,20 @@ class AppConfig:
                     "Run 'openalex init' to create a template."
                 )
             raw = kw_path.read_text(encoding="utf-8").strip()
-            # Collapse all whitespace (newlines, tabs, multiple spaces) to a
-            # single space so the query is safe to embed in an API filter string.
+            # 1. Strip comment lines
+            lines = [line for line in raw.splitlines() if not line.strip().startswith("#")]
+            optimized = " ".join(lines)
+            
+            # 2. Collapse all whitespace to single spaces
             import re
-            self._keywords = re.sub(r"\s+", " ", raw)
+            optimized = re.sub(r"\s+", " ", optimized)
+            
+            # 3. Aggressively remove unnecessary spaces to save URL length
+            # OpenAlex boolean parser is fine with ("A"OR"B"), but we'll 
+            # at least remove spaces around parentheses.
+            optimized = optimized.replace("( ", "(").replace(" )", ")")
+            
+            self._keywords = optimized.strip()
         return self._keywords
 
     def get_topics(self) -> list[str]:
@@ -225,6 +237,7 @@ def load_config(config_path: str = "config/collection.yml") -> AppConfig:
     return AppConfig(
         api_keys=api_keys,
         groq_api_key=api.get("groq_key", ""),
+        semanticscholar_api_key=api.get("semanticscholar_key", ""),
         email=api.get("email", ""),
         base_url=api.get("base_url", "https://api.openalex.org/works"),
         date_from=filters.get("date_from", "2003-01-01"),

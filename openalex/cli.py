@@ -13,6 +13,9 @@ from openalex.commands.check_db import check_db_command
 from openalex.commands.enrich_crossref import enrich_crossref_command
 from openalex.commands.impute_affiliation import impute_affiliation_command
 from openalex.commands.impute_pdf import impute_pdf_command
+from openalex.commands.enrich_openalex import enrich_openalex_command
+from openalex.commands.enrich_semanticscholar import enrich_semanticscholar_command
+from openalex.commands.impute_all import impute_all_command
 from openalex.commands.import_wos import import_wos_command
 from openalex.commands.import_wos_csv import import_wos_csv_command
 from openalex.commands.export import export_format_command
@@ -51,7 +54,10 @@ def cli() -> None:
 
     \b
     Imputation sources (pick one):
+      openalex impute all               Run full pipeline: OpenAlex → CrossRef → SemScholar → LLM
+      openalex impute openalex          Re-query OpenAlex for existing DB stubs
       openalex impute crossref          Restore raw_affiliation_string from CrossRef
+      openalex impute semanticscholar   Restore raw_affiliation_string from Semantic Scholar
       openalex impute llm               LLM-extract institution + country from raw affiliations
       openalex impute pdf               Resolve PDF URL, download, extract text, and use LLM to find affiliations
     """
@@ -63,7 +69,10 @@ def impute_group() -> None:
 
     \b
     Sources:
+      all        Run the full enrichment + imputation pipeline (optimal path).
+      openalex   Re-query OpenAlex for papers marked as stubs (Web of Science).
       crossref   Pull raw_affiliation_string from CrossRef by DOI (fast, low yield).
+      semanticscholar Pull raw_affiliation_string from Semantic Scholar by DOI.
       llm        Three-stage LLM pipeline over raw_affiliation_string.
       pdf        Fetch the paper's PDF (Unpaywall/arXiv), extract page-1 text, and use LLM to extract missing affiliations.
     """
@@ -90,7 +99,10 @@ cli.add_command(wos_import_impute_command)
 # Unified imputation subgroup. Names come from each command's own decorator
 # (@click.command("crossref") / @click.command("llm")) so help/usage output
 # consistently shows "openalex impute crossref" / "openalex impute llm".
+impute_group.add_command(impute_all_command)
+impute_group.add_command(enrich_openalex_command)
 impute_group.add_command(enrich_crossref_command)
+impute_group.add_command(enrich_semanticscholar_command)
 impute_group.add_command(impute_affiliation_command)
 impute_group.add_command(impute_pdf_command)
 cli.add_command(impute_group)

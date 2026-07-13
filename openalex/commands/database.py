@@ -59,7 +59,7 @@ def convert_to_db_command(config_path: str, jsonl_path: str, db_name: str, db_di
 class OpenAlexLoader:
     """Load OpenAlex JSONL data into a normalised DuckDB database."""
 
-    def __init__(self, db_path: str, jsonl_path: str):
+    def __init__(self, db_path: str, jsonl_path: str | None = None):
         import duckdb
         self.db_path = db_path
         self.jsonl_path = jsonl_path
@@ -315,6 +315,8 @@ class OpenAlexLoader:
             self.stats["errors"] += 1
 
     def load_jsonl(self) -> None:
+        if not self.jsonl_path:
+            raise ValueError("jsonl_path must be provided to use load_jsonl()")
         total_lines = sum(1 for _ in open(self.jsonl_path, encoding="utf-8") if _.strip())
 
         with Progress(

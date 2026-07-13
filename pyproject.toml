@@ -23,6 +23,7 @@ dependencies = [
     "rich>=14.3.3",
     "scikit-learn>=1.5.0",
     "sentence-transformers>=3.0.0",
+    "xlsxwriter>=3.2.9",
 ]
 
 [project.scripts]
