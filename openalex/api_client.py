@@ -157,6 +157,11 @@ class AsyncOpenAlexClient:
     # subcommands in the same run share key-health state.
     _pool: _ApiKeyPool = _ApiKeyPool()
 
+    # Rate limiting variables for broad boolean queries (> 5 operators)
+    _rate_limit_lock: Optional[asyncio.Lock] = None
+    _last_request_time: float = 0.0
+    _is_broad_boolean: bool = False
+
     def __init__(self, api_keys: list[str], email: str, per_page: int = 200,
                  max_retries: int = 5, retry_delay: int = 2,
                  concurrent_requests: int = 10):
@@ -201,7 +206,41 @@ class AsyncOpenAlexClient:
             local_kwargs = dict(kwargs)
             params = dict(local_kwargs.get("params") or {})
             params["api_key"] = key
+
+            # Proactively escape commas in doi filter values to prevent Bad Request (split on comma)
+            filter_str = params.get("filter", "")
+            if "doi:" in filter_str:
+                import re
+                def escape_doi_block(m):
+                    return "doi:" + m.group(1).replace(",", "%252C")
+                pattern = r"doi:(.*?)(?=,(?:type|from_publication_date|to_publication_date|primary_topic\.id|title_and_abstract\.search):|$)"
+                params["filter"] = re.sub(pattern, escape_doi_block, filter_str)
+
             local_kwargs["params"] = params
+
+            # 1. Initialize rate limit lock lazily
+            if AsyncOpenAlexClient._rate_limit_lock is None:
+                AsyncOpenAlexClient._rate_limit_lock = asyncio.Lock()
+
+            # 2. Proactively detect if filter has a broad boolean query
+            filter_str = params.get("filter", "")
+            if "title_and_abstract.search:" in filter_str and not AsyncOpenAlexClient._is_broad_boolean:
+                import re
+                # OpenAlex accepts OR, AND, NOT (case-sensitive or case-insensitive depending on client format)
+                # Count occurrences of whole-word operators
+                ops = len(re.findall(r"\b(AND|OR|NOT)\b", filter_str, flags=re.IGNORECASE))
+                if ops > 5:
+                    console.print("[yellow]⚠ Broad boolean query (> 5 operators) detected. Enabling 1 req/sec rate limit to avoid server blocks.[/yellow]")
+                    AsyncOpenAlexClient._is_broad_boolean = True
+
+            # 3. Enforce spacing of 1.05 seconds between requests if broad boolean query is active
+            if AsyncOpenAlexClient._is_broad_boolean:
+                async with AsyncOpenAlexClient._rate_limit_lock:
+                    now = asyncio.get_event_loop().time()
+                    elapsed = now - AsyncOpenAlexClient._last_request_time
+                    if elapsed < 1.05:
+                        await asyncio.sleep(1.05 - elapsed)
+                    AsyncOpenAlexClient._last_request_time = asyncio.get_event_loop().time()
 
             try:
                 async with self.session.request(method, url, **local_kwargs) as response:
@@ -226,6 +265,16 @@ class AsyncOpenAlexClient:
                         if isinstance(data, dict)
                         else ""
                     )
+                    
+                    # 4. Reactively detect broad boolean query rate limits
+                    is_broad_bool_response = (
+                        isinstance(data, dict)
+                        and "broad_boolean_query" in data.get("reason", "")
+                    )
+                    if is_broad_bool_response and not AsyncOpenAlexClient._is_broad_boolean:
+                        console.print("[yellow]⚠ OpenAlex reported broad boolean query rate limits. Enabling 1 req/sec spacing...[/yellow]")
+                        AsyncOpenAlexClient._is_broad_boolean = True
+
                     is_budget = (
                         isinstance(data, dict)
                         and "error" in data
@@ -272,13 +321,31 @@ class AsyncOpenAlexClient:
         return cls._pool.snapshot()
 
     async def get_total_count(self, api_filter: str) -> int:
-        """Fire one request to get the total result count. Fast."""
+        """Fire request(s) to get the total result count. Chunk topics if needed to avoid 400 Bad Request."""
+        import re
+        match = re.search(r"primary_topic\.id:([^,]+)", api_filter)
+        if match:
+            topics_str = match.group(1)
+            topics = topics_str.split("|")
+            if len(topics) > 40:
+                topic_chunks = [topics[i:i + 40] for i in range(0, len(topics), 40)]
+                total_count = 0
+                for chunk in topic_chunks:
+                    chunk_filter = api_filter.replace(topics_str, "|".join(chunk))
+                    url = "https://api.openalex.org/works"
+                    params = {"filter": chunk_filter, "per_page": 1}
+                    data = await self._request("GET", url, params=params)
+                    if data and "meta" in data:
+                        total_count += data["meta"]["count"]
+                return total_count
+
         url = "https://api.openalex.org/works"
         params = {"filter": api_filter, "per_page": 1}
         data = await self._request("GET", url, params=params)
         if data and "meta" in data:
             return data["meta"]["count"]
         return 0
+
 
     async def fetch_page(self, api_filter: str, cursor: str = "*",
                          extra_params: Optional[Dict] = None) -> Optional[Dict]:
