@@ -7,7 +7,6 @@ import re
 import string
 import unicodedata
 from dataclasses import dataclass
-from sre_compile import CH_UNICODE
 from typing import Any
 
 from rich.console import Console
@@ -20,44 +19,6 @@ console = Console()
 _DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
 _DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", re.IGNORECASE)
 _PUNCT_TRANSLATOR = str.maketrans({c: " " for c in string.punctuation})
-
-import re
-
-
-def build_topic_filter_chunks(api_filter: str, chunk_size: int = 40) -> list[str]:
-    """
-    Split an OpenAlex filter into multiple filters if it contains
-    more than `chunk_size` primary_topic.id values.
-
-    Returns:
-        List[str]: One or more complete filter strings.
-    """
-
-    match = re.search(r"primary_topic\.id:([^,]+)", api_filter)
-
-    # No topic filter present
-    if not match:
-        return [api_filter]
-
-    topics_str = match.group(1)
-    topics = topics_str.split("|")
-
-    # Already small enough
-    if len(topics) <= chunk_size:
-        return [api_filter]
-
-    chunked_filters = []
-
-    for i in range(0, len(topics), chunk_size):
-        chunk_topics = topics[i : i + chunk_size]
-        chunk_filter = api_filter.replace(
-            topics_str,
-            "|".join(chunk_topics),
-            1,  # Replace only the topic section
-        )
-        chunked_filters.append(chunk_filter)
-
-    return chunked_filters
 
 
 @dataclass(frozen=True)
@@ -107,14 +68,7 @@ def parse_anchor_entries(entries: list[str]) -> tuple[list[AnchorEntry], list[st
             continue
 
         looks_like_doi = value.casefold().startswith(
-            (
-                "10.",
-                "doi:",
-                "https://doi.org/",
-                "http://doi.org/",
-                "https://dx.doi.org/",
-                "http://dx.doi.org/",
-            )
+            ("10.", "doi:", "https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/")
         )
         if looks_like_doi:
             invalid.append(value)
@@ -138,9 +92,7 @@ def _cfg_api_keys(cfg: Any) -> list[str]:
     return [key] if key else []
 
 
-async def _check_title_anchor(
-    client: AsyncOpenAlexClient, api_filter: str, entry: AnchorEntry
-) -> bool:
+async def _check_title_anchor(client: AsyncOpenAlexClient, api_filter: str, entry: AnchorEntry) -> bool:
     """Query OpenAlex for a specific title anchor using title.search — O(1) per anchor."""
     words = entry.normalized.split()
     search_phrase = " ".join(words[:10])
@@ -156,9 +108,7 @@ async def _check_title_anchor(
     return False
 
 
-async def check_anchor_coverage(
-    cfg: Any, api_filter: str, anchors: list[AnchorEntry]
-) -> AnchorCheckResult:
+async def check_anchor_coverage(cfg: Any, api_filter: str, anchors: list[AnchorEntry]) -> AnchorCheckResult:
     found: list[AnchorEntry] = []
     missing: list[AnchorEntry] = []
 
@@ -174,33 +124,25 @@ async def check_anchor_coverage(
         # 100+ topic IDs, so a 50-DOI batch overflows OpenAlex's URL length
         # limit and the server returns an HTML 400 page instead of JSON.
         batch_size = 10
-        doi_batches = [
-            unique_dois[i : i + batch_size]
-            for i in range(0, len(unique_dois), batch_size)
-        ]
-
+        doi_batches = [unique_dois[i:i + batch_size] for i in range(0, len(unique_dois), batch_size)]
+        
         async with AsyncOpenAlexClient(
             api_keys=_cfg_api_keys(cfg),
             email=cfg.email,
-            per_page=200,  # We want to see which ones matched
+            per_page=200, # We want to see which ones matched
             max_retries=cfg.max_retries,
             retry_delay=cfg.retry_delay,
         ) as client:
             for batch in doi_batches:
-                batch_filter = batch[0]
+                batch_filter = "|".join(batch)
                 # We check if these DOIs match the CURRENT keyword filter
                 # We use fetch_page to get the actual results that matched
-                for chunk_filter in build_topic_filter_chunks(api_filter):
-                    data = await client.fetch_page(
-                        f"{chunk_filter},doi:{batch_filter}",
-                        cursor="*",
-                        extra_params={"select": "doi"},
-                    )
-                    if data and "results" in data:
-                        for res in data["results"]:
-                            res_doi = normalize_doi(res.get("doi") or "")
-                            if res_doi:
-                                found_dois.add(res_doi)
+                data = await client.fetch_page(f"{api_filter},doi:{batch_filter}", cursor="*", extra_params={"select": "doi"})
+                if data and "results" in data:
+                    for res in data["results"]:
+                        res_doi = normalize_doi(res.get("doi") or "")
+                        if res_doi:
+                            found_dois.add(res_doi)
 
     for entry in doi_anchors:
         (found if entry.normalized in found_dois else missing).append(entry)
@@ -215,10 +157,7 @@ async def check_anchor_coverage(
             concurrent_requests=cfg.concurrent_requests,
         ) as client:
             hits = await asyncio.gather(
-                *(
-                    _check_title_anchor(client, api_filter, entry)
-                    for entry in title_anchors
-                )
+                *(_check_title_anchor(client, api_filter, entry) for entry in title_anchors)
             )
         for entry, hit in zip(title_anchors, hits):
             (found if hit else missing).append(entry)
@@ -233,9 +172,7 @@ def print_anchor_summary(result: AnchorCheckResult, context_name: str) -> None:
     table.add_column("Count", justify="right", style="green")
     table.add_row("Anchors checked", str(total))
     table.add_row("Found", str(len(result.found)))
-    table.add_row(
-        "Missing", f"[red]{len(result.missing)}[/red]" if result.missing else "0"
-    )
+    table.add_row("Missing", f"[red]{len(result.missing)}[/red]" if result.missing else "0")
     if result.invalid:
         table.add_row("Invalid entries", f"[red]{len(result.invalid)}[/red]")
     console.print(table)
@@ -250,6 +187,4 @@ def print_anchor_summary(result: AnchorCheckResult, context_name: str) -> None:
         for entry in result.missing:
             console.print(f"  [red]• [{entry.kind}] {entry.raw}[/red]")
     else:
-        console.print(
-            "[bold green]✓ All anchors are present in this result set.[/bold green]"
-        )
+        console.print("[bold green]✓ All anchors are present in this result set.[/bold green]")
