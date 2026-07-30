@@ -32,7 +32,6 @@ class AnchorEntry:
 class AnchorCheckResult:
     found: list[AnchorEntry]
     missing: list[AnchorEntry]
-    invalid: list[str]
 
 
 def normalize_doi(value: str) -> str | None:
