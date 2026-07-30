@@ -160,6 +160,11 @@ async def _fetch_all_groups(cfg: Any, api_filter: str) -> list[dict]:
             if not batch:
                 break
             all_groups.extend(batch)
+
+            #fetch only 200 topics
+            if len(all_groups) >= 200:
+                return sorted(all_groups[:200], key=lambda g: g["count"], reverse=True)
+
             # Get next cursor from meta
             meta = data.get("meta", {})
             next_cursor = meta.get("next_cursor")
@@ -168,7 +173,7 @@ async def _fetch_all_groups(cfg: Any, api_filter: str) -> list[dict]:
                 break
             cursor = next_cursor
 
-    return sorted(all_groups, key=lambda g: g["count"], reverse=True)
+    return sorted(all_groups, key=lambda g: g["count"], reverse=True)[:200]
 
 
 async def _enrich_topic_data(cfg: Any, groups: list[dict]) -> list[dict]:
