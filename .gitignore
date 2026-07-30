@@ -230,3 +230,20 @@ topics_*.csv
 .github/copilot-instructions.md
 .cursor/
 .cursorrules
+# macOS
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Databases
+data/db/
+
+# Generated data
+data/raw/
+*.csv
+
+# Keep documentation/examples if desired
+!docs/**/*.csv
