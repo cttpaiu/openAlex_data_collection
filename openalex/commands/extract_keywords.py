@@ -42,6 +42,13 @@ def _build_documents(df: pl.DataFrame, title_col: str, abstract_col: str) -> lis
             docs.append(combined)
     return docs
 
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+
+custom_stopwords = list(ENGLISH_STOP_WORDS.union({
+    "english", "rights", "reserved", "elsevier rights", "elsevier rights reserved", "published elsevier"
+	"paper presents" ,"published elsevier rights","elsevier","published","paper","presents",
+}))
+
 
 def _score_terms(
     docs: list[str], ngram_min: int, ngram_max: int, min_df: int, max_df: float
@@ -50,7 +57,7 @@ def _score_terms(
 
     vectorizer = TfidfVectorizer(
         ngram_range=(ngram_min, ngram_max),
-        stop_words="english",
+        stop_words=custom_stopwords,
         min_df=min_df,
         max_df=max_df,
         lowercase=True,

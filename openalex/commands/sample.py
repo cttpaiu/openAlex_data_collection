@@ -29,15 +29,38 @@ SAMPLE_FIELDS = (
 
 
 @click.command("sample")
-@click.option("--size", "-n", required=True, type=int, help="Number of papers to sample")
-@click.option("--config", "config_path", default="config/collection.yml", show_default=True)
-@click.option("--no-topics", is_flag=True, help="Use keyword filter only (ignore topics file)")
+@click.option(
+    "--size", "-n", required=True, type=int, help="Number of papers to sample"
+)
+@click.option(
+    "--config", "config_path", default="config/collection.yml", show_default=True
+)
+@click.option(
+    "--no-topics", is_flag=True, help="Use keyword filter only (ignore topics file)"
+)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-@click.option("--csv", "save_csv", is_flag=True, help="Save sample to CSV automatically")
-@click.option("--output", "-o", default=None, help="Output CSV filename (used with --csv)")
+@click.option(
+    "--csv", "save_csv", is_flag=True, help="Save sample to CSV automatically"
+)
+@click.option(
+    "--output", "-o", default=None, help="Output CSV filename (used with --csv)"
+)
 @click.option("--seed", type=int, default=None, help="Random seed for reproducibility")
-@click.option("--reservoir", is_flag=True, help="Use reservoir sampling (slow but statistically valid - scans all papers)")
-def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save_csv: bool, output: str, seed: int, reservoir: bool) -> None:
+@click.option(
+    "--reservoir",
+    is_flag=True,
+    help="Use reservoir sampling (slow but statistically valid - scans all papers)",
+)
+def sample_command(
+    size: int,
+    config_path: str,
+    no_topics: bool,
+    yes: bool,
+    save_csv: bool,
+    output: str,
+    seed: int,
+    reservoir: bool,
+) -> None:
     """Take a random validation sample from matching papers.
 
     Default: Uses OpenAlex's built-in sample parameter (fast).
@@ -66,6 +89,7 @@ def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save
 
     if not yes:
         import questionary
+
         if not questionary.confirm("Proceed?", default=True).ask():
             console.print("[dim]Cancelled.[/dim]")
             return
@@ -84,10 +108,16 @@ def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save
     console.print(f"[dim]Total matching papers: {total_count:,}[/dim]\n")
 
     if not no_topics and topics and len(topics) > 40:
-        console.print(f"[dim]Topic list contains {len(topics)} topics. Using proportional sampling across chunks...[/dim]")
-        sampled = asyncio.run(_fetch_sample_proportional(cfg, keywords, topics, size, seed))
+        console.print(
+            f"[dim]Topic list contains {len(topics)} topics. Using proportional sampling across chunks...[/dim]"
+        )
+        sampled = asyncio.run(
+            _fetch_sample_proportional(cfg, keywords, topics, size, seed)
+        )
     elif reservoir:
-        console.print(f"\n[dim]Using reservoir sampling (scans all {total_count:,} papers...)[/dim]")
+        console.print(
+            f"\n[dim]Using reservoir sampling (scans all {total_count:,} papers...)[/dim]"
+        )
         sampled = asyncio.run(_reservoir_sample(cfg, api_filter, size, seed))
     else:
         # Default: Use OpenAlex sample API (fast)
@@ -101,21 +131,21 @@ def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save
     console.print("[dim]Analyzing sample relevance (Relevant vs Noise)...[/dim]")
     relevant_count = 0
     noise_count = 0
-    
+
     for idx, p in enumerate(sampled, 1):
         title = p.get("title") or ""
         abstract = reconstruct_abstract(p.get("abstract_inverted_index"))
         topic_name = (p.get("primary_topic") or {}).get("display_name") or ""
-        
+
         relevance, rationale = classify_paper(title, abstract, topic_name, cfg)
         p["relevance"] = relevance
         p["rationale"] = rationale
-        
+
         if relevance == "Relevant":
             relevant_count += 1
         else:
             noise_count += 1
-            
+
         if idx % 10 == 0 or idx == len(sampled):
             console.print(f"[dim]  Classified {idx}/{len(sampled)} papers...[/dim]")
 
@@ -139,11 +169,14 @@ def sample_command(size: int, config_path: str, no_topics: bool, yes: bool, save
         _save_sample_csv(sampled, filename)
     elif not yes:
         import questionary
+
         if questionary.confirm("\nSave sample to CSV?", default=True).ask():
             default_name = f"sample_{datetime.now().strftime('%Y%m%d')}.csv"
-            filename = questionary.text("Filename:", default=default_name).ask() or default_name
+            filename = (
+                questionary.text("Filename:", default=default_name).ask()
+                or default_name
+            )
             _save_sample_csv(sampled, filename)
-
 
 
 def _print_filter_summary(cfg: Any, topics: Optional[list[str]], size: int) -> None:
@@ -182,7 +215,13 @@ def _print_sample_table(papers: List[Dict]) -> None:
         topic = (p.get("primary_topic") or {}).get("display_name", "—")
         title = (p.get("title") or "Untitled")[:54]
         rel = p.get("relevance", "—")
-        rel_style = "[green]Relevant[/green]" if rel == "Relevant" else "[red]Noise[/red]" if rel == "Noise" else "—"
+        rel_style = (
+            "[green]Relevant[/green]"
+            if rel == "Relevant"
+            else "[red]Noise[/red]"
+            if rel == "Noise"
+            else "—"
+        )
         table.add_row(
             str(i),
             str(p.get("publication_year") or "—"),
@@ -195,88 +234,150 @@ def _print_sample_table(papers: List[Dict]) -> None:
     console.print(table)
 
 
-
 def _save_sample_csv(papers: List[Dict], filename: str) -> None:
     path = Path(filename)
     fieldnames = [
-        "id", "doi", "title", "publication_year", "type",
-        "topic_id", "topic_name", "abstract_text",
-        "cited_by_count", "fwci", "institutions_count", "countries_count",
-        "relevance", "rationale",
+        "id",
+        "doi",
+        "title",
+        "publication_year",
+        "type",
+        "topic_id",
+        "topic_name",
+        "abstract_text",
+        "cited_by_count",
+        "fwci",
+        "institutions_count",
+        "countries_count",
+        "relevance",
+        "rationale",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for p in papers:
             topic = p.get("primary_topic") or {}
-            writer.writerow({
-                "id": p.get("id", ""),
-                "doi": p.get("doi", ""),
-                "title": p.get("title", ""),
-                "publication_year": p.get("publication_year", ""),
-                "type": p.get("type", ""),
-                "topic_id": (topic.get("id") or "").split("/")[-1],
-                "topic_name": topic.get("display_name", ""),
-                "abstract_text": reconstruct_abstract(p.get("abstract_inverted_index")),
-                "cited_by_count": p.get("cited_by_count", ""),
-                "fwci": p.get("fwci", ""),
-                "institutions_count": p.get("institutions_distinct_count", ""),
-                "countries_count": p.get("countries_distinct_count", ""),
-                "relevance": p.get("relevance", "Unclassified"),
-                "rationale": p.get("rationale", ""),
-            })
+            writer.writerow(
+                {
+                    "id": p.get("id", ""),
+                    "doi": p.get("doi", ""),
+                    "title": p.get("title", ""),
+                    "publication_year": p.get("publication_year", ""),
+                    "type": p.get("type", ""),
+                    "topic_id": (topic.get("id") or "").split("/")[-1],
+                    "topic_name": topic.get("display_name", ""),
+                    "abstract_text": reconstruct_abstract(
+                        p.get("abstract_inverted_index")
+                    ),
+                    "cited_by_count": p.get("cited_by_count", ""),
+                    "fwci": p.get("fwci", ""),
+                    "institutions_count": p.get("institutions_distinct_count", ""),
+                    "countries_count": p.get("countries_distinct_count", ""),
+                    "relevance": p.get("relevance", "Unclassified"),
+                    "rationale": p.get("rationale", ""),
+                }
+            )
     console.print(f"[green]✓ Saved to [cyan]{filename}[/cyan][/green]")
 
 
-def classify_paper(title: str, abstract: str, topic_name: str, cfg: Any) -> tuple[str, str]:
+def classify_paper(
+    title: str, abstract: str, topic_name: str, cfg: Any
+) -> tuple[str, str]:
     title = title or ""
     abstract = abstract or ""
     topic_name = topic_name or ""
-    
+
     # Heuristic fallback (fast, local, and reliable)
     text = (title + " " + abstract + " " + topic_name).lower()
-    
+
     battery_keywords = [
-        "battery", "batteries", "li-ion", "lithium-ion", "lithium-sulfur", "li-s",
-        "state of charge", "state of health", "soc", "soh", "bms", "bess",
-        "remaining useful life", "rul", "equivalent-circuit model", "cell balancing",
-        "state of energy", "soe", "battery modeling", "battery model",
-        "charge estimation", "health estimation"
+        "battery",
+        "batteries",
+        "li-ion",
+        "lithium-ion",
+        "lithium-sulfur",
+        "li-s",
+        "state of charge",
+        "state of health",
+        "soc",
+        "soh",
+        "bms",
+        "bess",
+        "remaining useful life",
+        "rul",
+        "equivalent-circuit model",
+        "cell balancing",
+        "state of energy",
+        "soe",
+        "battery modeling",
+        "battery model",
+        "charge estimation",
+        "health estimation",
     ]
-    
+
     noise_keywords = [
-        "solar cell", "solar cells", "photovoltaic cell", "photovoltaic cells",
-        "fuel cell", "fuel cells", "microbial fuel",
-        "biological cell", "biological cells", "cell division", "cancer cell", "cancer cells",
-        "cellular network", "cellular networks", "5g", "lte", "cellular neural network",
-        "cellular manufacturing", "cell biology"
+        "solar cell",
+        "solar cells",
+        "photovoltaic cell",
+        "photovoltaic cells",
+        "fuel cell",
+        "fuel cells",
+        "microbial fuel",
+        "biological cell",
+        "biological cells",
+        "cell division",
+        "cancer cell",
+        "cancer cells",
+        "cellular network",
+        "cellular networks",
+        "5g",
+        "lte",
+        "cellular neural network",
+        "cellular manufacturing",
+        "cell biology",
     ]
-    
+
     has_battery = any(kw in text for kw in battery_keywords)
     has_noise = any(kw in text for kw in noise_keywords)
-    
+
     if has_battery and not has_noise:
-        return "Relevant", "Matches battery keywords and contains no obvious noise keywords."
+        return (
+            "Relevant",
+            "Matches battery keywords and contains no obvious noise keywords.",
+        )
     elif has_noise and not has_battery:
-        return "Noise", "Contains explicit noise keywords (e.g. solar/fuel cells, biological cells, or telecommunications) and lacks battery terms."
+        return (
+            "Noise",
+            "Contains explicit noise keywords (e.g. solar/fuel cells, biological cells, or telecommunications) and lacks battery terms.",
+        )
     elif has_noise and has_battery:
         if "battery management" in text or "bms" in text or "bess" in text:
-            return "Relevant", "Contains noise keywords but includes strong battery system terms like BMS/BESS."
-        return "Noise", "Contains both battery and noise keywords, likely focusing on fuel cell/solar cell hybrid systems or general power system applications."
+            return (
+                "Relevant",
+                "Contains noise keywords but includes strong battery system terms like BMS/BESS.",
+            )
+        return (
+            "Noise",
+            "Contains both battery and noise keywords, likely focusing on fuel cell/solar cell hybrid systems or general power system applications.",
+        )
     else:
-        if "energy storage" in text and ("grid" in text or "microgrid" in text or "renewable" in text):
+        if "energy storage" in text and (
+            "grid" in text or "microgrid" in text or "renewable" in text
+        ):
             return "Relevant", "Mentions energy storage in grid/microgrid context."
         return "Noise", "Does not contain strong battery or energy storage indicators."
 
 
-async def _fetch_sample_proportional(cfg: Any, keywords: str, topics: list[str], k: int, seed: Optional[int] = None) -> List[Dict]:
+async def _fetch_sample_proportional(
+    cfg: Any, keywords: str, topics: list[str], k: int, seed: Optional[int] = None
+) -> List[Dict]:
     """Proportionally sample from large topic list to prevent URL size overflow."""
     chunk_size = 18
-    chunks = [topics[i:i + chunk_size] for i in range(0, len(topics), chunk_size)]
-    
+    chunks = [topics[i : i + chunk_size] for i in range(0, len(topics), chunk_size)]
+
     chunk_counts = []
     total_count = 0
-    
+
     async with AsyncOpenAlexClient(
         api_keys=cfg.api_keys,
         email=cfg.email,
@@ -295,29 +396,32 @@ async def _fetch_sample_proportional(cfg: Any, keywords: str, topics: list[str],
             count = await client.get_total_count(chunk_filter)
             chunk_counts.append(count)
             total_count += count
-            
+
     sample_sizes = []
     allocated = 0
+
     for count in chunk_counts:
         if total_count > 0:
             sz = int(round(k * count / total_count))
         else:
             sz = 0
+
         sample_sizes.append(sz)
         allocated += sz
-        
+
     diff = k - allocated
+
     if diff != 0 and total_count > 0:
         max_idx = chunk_counts.index(max(chunk_counts))
         sample_sizes[max_idx] += diff
-        
+
     sampled_papers = []
-    
+
     if seed is None:
         base_seed = random.randint(1, 1000000)
     else:
         base_seed = seed
-        
+
     async with AsyncOpenAlexClient(
         api_keys=cfg.api_keys,
         email=cfg.email,
@@ -328,7 +432,7 @@ async def _fetch_sample_proportional(cfg: Any, keywords: str, topics: list[str],
         for idx, (chunk, sz) in enumerate(zip(chunks, sample_sizes)):
             if sz <= 0:
                 continue
-                
+
             chunk_filter = build_filter(
                 keywords=keywords,
                 topics=chunk,
@@ -336,23 +440,90 @@ async def _fetch_sample_proportional(cfg: Any, keywords: str, topics: list[str],
                 date_to=cfg.date_to,
                 doc_types=cfg.doc_types,
             )
-            
-            extra_params = {
-                "select": SAMPLE_FIELDS,
-                "sample": sz,
-                "seed": base_seed + idx,
-            }
-            
-            data = await client.fetch_page(chunk_filter, cursor="*", extra_params=extra_params)
-            if data and "results" in data:
-                sampled_papers.extend(data["results"])
-                
+
+            console.print(
+                f"[cyan]Chunk {idx + 1}[/cyan] "
+                f"count={chunk_counts[idx]:,}, "
+                f"requested_sample={sz}"
+            )
+
+            chunk_results = []
+            seen_ids = set()
+
+            remaining = sz
+            current_seed = base_seed + idx
+
+            attempts = 0
+            max_attempts = 10
+
+            while remaining > 0 and attempts < max_attempts:
+                request_size = min(200, remaining)
+
+                extra_params = {
+                    "select": SAMPLE_FIELDS,
+                    "sample": request_size,
+                    "seed": current_seed,
+                }
+
+                data = await client.fetch_page(
+                    chunk_filter,
+                    cursor="*",
+                    extra_params=extra_params,
+                )
+
+                if not data or "results" not in data:
+                    break
+
+                new_count = 0
+
+                for paper in data["results"]:
+                    pid = paper["id"]
+
+                    if pid not in seen_ids:
+                        seen_ids.add(pid)
+                        chunk_results.append(paper)
+                        new_count += 1
+
+                console.print(
+                    f"[dim]Chunk {idx + 1}: "
+                    f"{len(chunk_results)}/{sz} collected "
+                    f"(attempt {attempts + 1})[/dim]"
+                )
+
+                if new_count == 0:
+                    console.print(
+                        "[yellow]No new papers returned. Stopping this chunk.[/yellow]"
+                    )
+                    break
+
+                remaining = sz - len(chunk_results)
+                current_seed += 1
+                attempts += 1
+
+            sampled_papers.extend(chunk_results)
+
+    requested = k
+    retrieved = len(sampled_papers)
+
+    console.print("\n[bold]Sampling Summary[/bold]")
+    console.print(f"[dim]Requested :[/dim] {requested}")
+    console.print(f"[dim]Retrieved :[/dim] {retrieved}")
+    console.print(f"[dim]Missing   :[/dim] {max(0, requested - retrieved)}")
+
     random.shuffle(sampled_papers)
+
+    if len(sampled_papers) < k:
+        console.print(
+            f"[yellow]Warning:[/yellow] Requested {k} papers "
+            f"but only {len(sampled_papers)} unique papers were retrieved."
+        )
+
     return sampled_papers[:k]
 
 
-
-async def _reservoir_sample(cfg: Any, api_filter: str, k: int, seed: Optional[int] = None) -> List[Dict]:
+async def _reservoir_sample(
+    cfg: Any, api_filter: str, k: int, seed: Optional[int] = None
+) -> List[Dict]:
     """Reservoir sampling — statistically valid random sample from ALL results.
 
     Algorithm: https://en.wikipedia.org/wiki/Reservoir_sampling
@@ -387,11 +558,14 @@ async def _reservoir_sample(cfg: Any, api_filter: str, k: int, seed: Optional[in
         concurrent_requests=cfg.concurrent_requests,
     ) as client:
         cursor = "*"
-        console.print("[dim]Scanning all matching papers for true random sampling...[/dim]")
+        console.print(
+            "[dim]Scanning all matching papers for true random sampling...[/dim]"
+        )
 
         while cursor:
             data = await client.fetch_page(
-                api_filter, cursor,
+                api_filter,
+                cursor,
                 extra_params={"select": SAMPLE_FIELDS},
             )
             if not data:
@@ -426,22 +600,24 @@ async def _reservoir_sample(cfg: Any, api_filter: str, k: int, seed: Optional[in
     return reservoir
 
 
-async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[int] = None) -> List[Dict]:
+async def _fetch_sample_fast(
+    cfg: Any, api_filter: str, k: int, seed: Optional[int] = None
+) -> List[Dict]:
     """Use OpenAlex API's built-in sample parameter (default method).
 
     OpenAlex docs: https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/sample-entity-lists
 
     Fast sampling using the native sample parameter.
     For statistically rigorous sampling, use --reservoir flag instead.
-    
+
     Note: OpenAlex returns max 200 papers per page, so we make multiple requests
     with different random seeds to get k > 200 papers.
-    
+
     By default, uses random seeds for different samples each run.
     Use --seed flag for reproducible samples.
     """
     results: List[Dict] = []
-    
+
     async with AsyncOpenAlexClient(
         api_keys=cfg.api_keys,
         email=cfg.email,
@@ -453,16 +629,20 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
         # For k > 200, we need to make multiple requests with different seeds
         # because OpenAlex sample parameter doesn't support cursor pagination
         pages_needed = (k // 200) + 1
-        
+
         # Generate random base seed if not provided (ensures different sample each run)
         if seed is None:
             # Use microseconds for high entropy - guarantees different seed each run
             base_seed = int(datetime.now().timestamp() * 1_000_000) % (2**31)
-            console.print(f"[dim]Using random seed: {base_seed} (use --seed {base_seed} to reproduce this sample)[/dim]\n")
+            console.print(
+                f"[dim]Using random seed: {base_seed} (use --seed {base_seed} to reproduce this sample)[/dim]\n"
+            )
         else:
             base_seed = seed
-            console.print(f"[dim]Using fixed seed: {seed} (reproducible sample)[/dim]\n")
-        
+            console.print(
+                f"[dim]Using fixed seed: {seed} (reproducible sample)[/dim]\n"
+            )
+
         for page in range(pages_needed):
             extra_params = {
                 "select": SAMPLE_FIELDS,
@@ -470,20 +650,22 @@ async def _fetch_sample_fast(cfg: Any, api_filter: str, k: int, seed: Optional[i
                 "seed": base_seed + page,  # Different seed for each page
             }
 
-            data = await client.fetch_page(api_filter, cursor="*", extra_params=extra_params)
+            data = await client.fetch_page(
+                api_filter, cursor="*", extra_params=extra_params
+            )
             if not data:
                 break
             batch = data.get("results", [])
             if not batch:
                 break
-            
+
             # Filter out duplicates by ID
             existing_ids = {p["id"] for p in results}
             new_papers = [p for p in batch if p["id"] not in existing_ids]
             results.extend(new_papers)
-            
+
             console.print(f"[dim]  Fetched {len(results)}/{k} papers...[/dim]")
-            
+
             if len(results) >= k:
                 break
 
