@@ -42,7 +42,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "llm": {
         "provider": "ollama",
-        "model": "sorc/qwen3.5-instruct:2b",
+        "model": "qwen3:4b",
         "base_url": "http://localhost:11434",
     },
     "output": {

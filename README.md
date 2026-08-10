@@ -45,6 +45,9 @@ uv run openalex init
 # 3. Edit config/topics.txt — add topic IDs (one per line, format: T10020)
 # 4. Edit config/anchor.txt — add must-find DOI/title anchor papers
 
+# 5.Extract the keywords (TFIDF + KeyBERT)
+  uv run openalex extract-keywords --use-keybert --keybert-model allenai-specter <FILE>
+
 # 5. Validate before collecting
 uv run openalex validate --no-api    # syntax check, no internet needed
 uv run openalex validate             # + API existence check for topic IDs

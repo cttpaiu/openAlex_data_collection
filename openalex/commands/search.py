@@ -120,3 +120,7 @@ async def _get_count(cfg, api_filter: str) -> int:
         retry_delay=cfg.retry_delay,
     ) as client:
         return await client.get_total_count(api_filter)
+
+
+
+    
