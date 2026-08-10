@@ -24,6 +24,7 @@ from openalex.commands.build_categorized_query import build_categorized_query_co
 from openalex.commands.validate import validate_command
 from openalex.commands.compare_dois import compare_dois_command
 from openalex.commands.wos_import_impute import wos_import_impute_command
+from openalex.commands.topic_search import topic_search_command
 
 
 @click.group()
@@ -35,6 +36,7 @@ def cli() -> None:
     Workflow:
       0. openalex extract-keywords FILE        TF-IDF over title+abstract → ranked keywords file
          openalex build-categorized-query JSON  (optional) Bucketed JSON → bounded boolean query
+         openalex extract-keywords --use-keybert --keybert-model allenai-specter <FILE>           (fetch better keywords using SPECTER embeddings)
       1. openalex init                  Create config template files
       2. openalex validate              Check keywords.txt and topics.txt
       3. openalex search                Keyword count + anchor check
@@ -42,6 +44,7 @@ def cli() -> None:
       5. openalex get-topics --details --csv  Topic counts → CSV
       6. openalex search-filtered       Keyword + topic count + anchor check
       7. openalex check-anchor          Explicit anchor coverage check
+      8. openalex topic-search          Analyze missing topics
       8. openalex sample --size 385     Random validation sample
       9. openalex download              Download all papers → JSONL
      10. openalex convert-to-db         JSONL → DuckDB
@@ -51,6 +54,7 @@ def cli() -> None:
      14. openalex compare-dois          DOI overlap between DuckDB and a WoS CSV
      15. openalex wos-import-impute     One-shot: CSV → DOI dedupe → OpenAlex fetch → impute
      16. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
+  
 
     \b
     Imputation sources (pick one):
@@ -95,6 +99,7 @@ cli.add_command(extract_keywords_command)
 cli.add_command(build_categorized_query_command)
 cli.add_command(compare_dois_command)
 cli.add_command(wos_import_impute_command)
+cli.add_command(topic_search_command)
 
 # Unified imputation subgroup. Names come from each command's own decorator
 # (@click.command("crossref") / @click.command("llm")) so help/usage output

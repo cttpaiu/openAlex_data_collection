@@ -15,7 +15,7 @@ def build_filter(
     keywords: str,
     topics: Optional[list[str]] = None,
     date_from: str = "2003-01-01",
-    date_to: str = "2024-12-31",
+    date_to: str = "2025-12-31",
     doc_types: Optional[list[str]] = None,
 ) -> str:
     """Build an OpenAlex API filter string."""
