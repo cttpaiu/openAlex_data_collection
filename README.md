@@ -58,6 +58,9 @@ uv run openalex get-topics --details --csv   # discover topic IDs
 uv run openalex search-filtered      # keyword+topic count + anchor coverage check
 uv run openalex check-anchor         # explicit anchor coverage command
 
+# 7.
+uv run openalex topic-search          #Analyze missing topics
+
 # 7. Sample before full download
 uv run openalex sample --size 385    # random validation sample
 
