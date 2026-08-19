@@ -10,6 +10,7 @@ from openalex.commands.sample import sample_command
 from openalex.commands.download import download_command
 from openalex.commands.database import convert_to_db_command
 from openalex.commands.check_db import check_db_command
+from openalex.commands.impute_country import impute_country_command
 from openalex.commands.enrich_crossref import enrich_crossref_command
 from openalex.commands.impute_affiliation import impute_affiliation_command
 from openalex.commands.impute_pdf import impute_pdf_command
@@ -45,13 +46,12 @@ def cli() -> None:
       6. openalex search-filtered       Keyword + topic count + anchor check
       7. openalex check-anchor          Explicit anchor coverage check
       8. openalex topic-search          Analyze missing topics
-      8. openalex sample --size 385     Random validation sample
-      9. openalex download              Download all papers → JSONL
-     10. openalex convert-to-db         JSONL → DuckDB
-     11. openalex check-db              Paper-centric coverage health report
-     12. openalex import-wos            Import per-country Web of Science Excel exports
-     13. openalex import-wos-csv        Import Web of Science records from a CSV file
-     14. openalex compare-dois          DOI overlap between DuckDB and a WoS CSV
+      9. openalex sample --size 385     Random validation sample
+      10. openalex download              Download all papers → JSONL
+     11. openalex convert-to-db         JSONL → DuckDB
+     12. openalex check-db              Paper-centric coverage health report
+     13. openalex impute-country       Recover missing country_code values
+     14. openalex import-wos            Import per-country Web of Science Excel exports
      15. openalex wos-import-impute     One-shot: CSV → DOI dedupe → OpenAlex fetch → impute
      16. openalex impute <source>       Imputation pipeline — see `openalex impute --help`
   
@@ -92,6 +92,7 @@ cli.add_command(sample_command)
 cli.add_command(download_command)
 cli.add_command(convert_to_db_command)
 cli.add_command(check_db_command)
+cli.add_command(impute_country_command)
 cli.add_command(import_wos_command)
 cli.add_command(import_wos_csv_command)
 cli.add_command(export_format_command)
